@@ -20,7 +20,8 @@ class JobScraper {
           title: 'Full Stack Engineer - React/Node',
           company: { name: 'TechNova', website: 'https://technova.example.com' },
           description: 'We are looking for a mid-level full stack engineer skilled in React, Node.js, and MongoDB. Experience with AWS is a plus.',
-          url: `https://example.com/jobs/technova-${Math.floor(Math.random() * 10000)}`,
+          // UPDATED: Placed a test URL containing actual input form fields to test Puppeteer locally
+          url: `https://www.w3schools.com/html/html_forms.asp?job=1&rand=${Math.random()}`,
           location: 'Remote',
           remote: true
         },
@@ -28,7 +29,8 @@ class JobScraper {
           title: 'Python Backend Developer',
           company: { name: 'DataFleet', website: 'https://datafleet.example.com' },
           description: 'Join our data team! Requires 3+ years of Python, FastAPI, and Docker. Must know system design and SQL.',
-          url: `https://example.com/jobs/datafleet-${Math.floor(Math.random() * 10000)}`,
+          // UPDATED: Placed a test URL containing actual input form fields to test Puppeteer locally
+          url: `https://www.w3schools.com/html/html_forms.asp?job=2&rand=${Math.random()}`,
           location: 'New York, NY',
           remote: false
         }

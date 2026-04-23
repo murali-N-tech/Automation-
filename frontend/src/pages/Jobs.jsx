@@ -3,6 +3,13 @@ import api from '../services/api';
 import { Briefcase, Search, Zap, Globe, Clock, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+function getCompanyDisplayName(company) {
+  if (!company) return 'Unknown Company';
+  if (typeof company === 'string') return company;
+  if (typeof company === 'object') return company.name || company.website || 'Unknown Company';
+  return 'Unknown Company';
+}
+
 export default function Jobs() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -52,9 +59,10 @@ export default function Jobs() {
     }
   };
 
-  const handleApply = async (jobId) => {
+  // UPDATED: Now receives and sends both applicationId and jobId
+  const handleApply = async (applicationId, jobId) => {
     try {
-      await api.post('/apply/start', { jobId });
+      await api.post('/apply/start', { applicationId, jobId });
       toast.success('Application automation started');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to start apply automator');
@@ -92,16 +100,17 @@ export default function Jobs() {
           </div>
         ) : (
           jobs.map(job => (
-            <div key={job.jobId._id} className="bg-white p-6 rounded-xl border border-neutral-200 shadow-sm hover:shadow-md transition">
+            <div key={job._id} className="bg-white p-6 rounded-xl border border-neutral-200 shadow-sm hover:shadow-md transition">
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <h2 className="font-bold text-lg text-neutral-900 leading-tight">
                     {job.jobId.title}
                   </h2>
-                  <p className="text-neutral-500">{job.jobId.company}</p>
+                  <p className="text-neutral-500">{getCompanyDisplayName(job.jobId.company)}</p>
                 </div>
+                {/* UPDATED: Changed job.matchScore to job.atsScore */}
                 <span className="flex items-center gap-1 font-bold text-sm bg-blue-50 text-blue-700 px-2 py-1 rounded-lg">
-                  {job.matchScore}% Match
+                  {job.atsScore}% Match
                 </span>
               </div>
               
@@ -114,8 +123,9 @@ export default function Jobs() {
                 {job.jobId.description}
               </p>
 
+              {/* UPDATED: Passing both job._id (application) and job.jobId._id (actual job) */}
               <button
-                onClick={() => handleApply(job.jobId._id)}
+                onClick={() => handleApply(job._id, job.jobId._id)}
                 className="w-full flex items-center justify-center gap-2 py-2 bg-neutral-900 text-white rounded-lg font-medium hover:bg-neutral-800 transition"
               >
                 Auto Apply <ChevronRight className="w-4 h-4" />

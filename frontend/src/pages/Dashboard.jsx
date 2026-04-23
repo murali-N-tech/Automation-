@@ -4,6 +4,13 @@ import api from '../services/api';
 import { AuthContext } from '../context/AuthContext';
 import { Link } from 'react-router-dom';
 
+function getCompanyDisplayName(company) {
+  if (!company) return 'Unknown Company';
+  if (typeof company === 'string') return company;
+  if (typeof company === 'object') return company.name || company.website || 'Unknown Company';
+  return 'Unknown Company';
+}
+
 export default function Dashboard() {
   const { user } = useContext(AuthContext);
   const [stats, setStats] = useState({
@@ -107,7 +114,7 @@ export default function Dashboard() {
                  <div key={app._id} className="flex justify-between items-center border-b border-neutral-100 pb-4 last:border-0">
                     <div>
                       <p className="font-semibold text-neutral-900">{app.jobId?.title || 'Unknown Job'}</p>
-                      <p className="text-sm text-neutral-500">{app.jobId?.company || 'Unknown Company'}</p>
+                      <p className="text-sm text-neutral-500">{getCompanyDisplayName(app.jobId?.company)}</p>
                     </div>
                     <div className="text-right">
                       <span className={`inline-block px-2 py-1 rounded-md text-xs font-bold ${app.atsScore >= 80 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
