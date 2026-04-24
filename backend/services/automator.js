@@ -5,6 +5,22 @@ const path = require('path');
 class SmartApplyAssistant {
   constructor() {
     this.browser = null;
+    this.idleCloseTimer = null;
+    this.idleCloseMs = Number(process.env.AUTOMATOR_IDLE_CLOSE_MS || 15 * 60 * 1000);
+  }
+
+  scheduleBrowserClose() {
+    if (this.idleCloseTimer) {
+      clearTimeout(this.idleCloseTimer);
+    }
+
+    this.idleCloseTimer = setTimeout(async () => {
+      try {
+        await this.closeBrowser();
+      } catch (err) {
+        console.error('Auto-close browser failed:', err.message);
+      }
+    }, this.idleCloseMs);
   }
 
   async initBrowser() {
@@ -16,6 +32,8 @@ class SmartApplyAssistant {
         args: ['--start-maximized']
       });
     }
+
+    this.scheduleBrowserClose();
   }
 
   async autofillApplication(jobUrl, userProfile, resumePath) {
@@ -91,12 +109,22 @@ class SmartApplyAssistant {
         warnings,
       };
     } catch (error) {
+      try {
+        await page.close();
+      } catch {
+        // Ignore close errors on failed page creation/navigation
+      }
       console.error('Error during autofill:', error);
       return { success: false, error: error.message };
     }
   }
 
   async closeBrowser() {
+    if (this.idleCloseTimer) {
+      clearTimeout(this.idleCloseTimer);
+      this.idleCloseTimer = null;
+    }
+
     if (this.browser) {
       await this.browser.close();
       this.browser = null;

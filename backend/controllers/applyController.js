@@ -102,6 +102,15 @@ const completeApplication = async (req, res) => {
 
         await application.save();
 
+        // Close the review browser once user has marked an explicit outcome.
+        if (outcome === 'applied' || outcome === 'failed') {
+            try {
+                await SmartApplyAssistant.closeBrowser();
+            } catch (closeErr) {
+                console.error('Failed to close automation browser:', closeErr.message);
+            }
+        }
+
         return res.json({ success: true, application });
     } catch (err) {
         console.error(err);

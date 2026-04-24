@@ -3,8 +3,16 @@ import io
 import PyPDF2
 import json
 import os
+import re
+import zipfile
+import xml.etree.ElementTree as ET
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
+
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
 
 from models.schemas import ResumeParseRes
 
@@ -29,6 +37,83 @@ def _candidate_models():
 
 router = APIRouter(prefix="/parser", tags=["Parser"])
 
+KNOWN_SKILLS = [
+    "python", "java", "javascript", "typescript", "react", "angular", "vue",
+    "node.js", "express", "fastapi", "django", "flask", "spring boot",
+    "mongodb", "postgresql", "mysql", "redis", "aws", "azure", "gcp",
+    "docker", "kubernetes", "terraform", "jenkins", "github actions",
+    "rest", "graphql", "microservices", "system design", "sql", "nosql",
+    "pandas", "numpy", "scikit-learn", "machine learning", "llm", "nlp",
+    "pytest", "jest", "cypress", "selenium", "git", "linux"
+]
+
+
+def _extract_text_from_pdf(content: bytes) -> str:
+    if fitz:
+        doc = fitz.open(stream=content, filetype="pdf")
+        text_parts = [page.get_text("text") for page in doc]
+        doc.close()
+        return "\n".join(text_parts)
+
+    # Fallback for environments where PyMuPDF is not installed
+    reader = PyPDF2.PdfReader(io.BytesIO(content))
+    return "\n".join([(page.extract_text() or "") for page in reader.pages])
+
+
+def _extract_text_from_docx(content: bytes) -> str:
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        xml_data = archive.read("word/document.xml")
+
+    root = ET.fromstring(xml_data)
+    text_chunks = [node.text.strip() for node in root.iter() if node.text and node.text.strip()]
+    return "\n".join(text_chunks)
+
+
+def _normalize_skill(skill: str) -> str:
+    parts = [w.capitalize() if w.isalpha() else w for w in skill.split(" ")]
+    return " ".join(parts)
+
+
+def _extract_skills_locally(extracted_text: str):
+    text_lower = extracted_text.lower()
+    found = []
+    for skill in KNOWN_SKILLS:
+        pattern = r"(?<!\w)" + re.escape(skill.lower()) + r"(?!\w)"
+        if re.search(pattern, text_lower):
+            found.append(_normalize_skill(skill))
+
+    # Also include common explicit "Skills:" line values when present
+    line_skills = []
+    for line in extracted_text.splitlines():
+        if "skill" in line.lower() and ":" in line:
+            candidates = re.split(r"[,|/]", line.split(":", 1)[1])
+            for candidate in candidates:
+                token = candidate.strip()
+                if 2 < len(token) < 40:
+                    line_skills.append(token)
+
+    deduped = []
+    seen = set()
+    for skill in found + line_skills:
+        key = skill.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(skill)
+
+    return deduped[:40]
+
+
+def _local_resume_fallback(extracted_text: str):
+    skills = _extract_skills_locally(extracted_text)
+
+    return ResumeParseRes(
+        skills=skills if skills else ["General Software Engineering"],
+        projects=[],
+        experience=[],
+        education=[]
+    )
+
 @router.post("/resume", response_model=ResumeParseRes)
 async def parse_resume(file: UploadFile = File(...)):
     """
@@ -42,11 +127,11 @@ async def parse_resume(file: UploadFile = File(...)):
     extracted_text = ""
 
     try:
-        # Fallback to PyPDF2 for basic text extraction
+        # Prefer PyMuPDF for better layout fidelity; fallback to PyPDF2.
         if file.filename.endswith(".pdf"):
-            reader = PyPDF2.PdfReader(io.BytesIO(content))
-            for page in reader.pages:
-                extracted_text += page.extract_text() or ""
+            extracted_text = _extract_text_from_pdf(content)
+        elif file.filename.endswith(".docx"):
+            extracted_text = _extract_text_from_docx(content)
         
         # Check if Groq API key is configured
         if client.api_key and client.api_key != "your_groq_api_key_here":
@@ -90,40 +175,7 @@ async def parse_resume(file: UploadFile = File(...)):
             if last_llm_error:
                 print(f"LLM parsing unavailable, using local fallback: {last_llm_error}")
         
-        # Here, we would ideally pass `extracted_text` to OpenAI/Anthropic to structure
-        # For prototype stability without active API keys, returning mock structure
-        # representing LLM parsing output:
-        
-        skills = ["Python", "React", "Node.js", "MongoDB", "AWS"]
-        
-        # Simple extraction logic stub
-        if "React" in extracted_text:
-            skills.append("React")
-
-        return ResumeParseRes(
-            skills=list(set(skills)),
-            projects=[
-                {
-                    "name": "AI Placement Officer",
-                    "description": "An AI-powered agent to manage job applications.",
-                    "technologies": ["Python", "Node.js"]
-                }
-            ],
-            experience=[
-                {
-                    "company": "Tech Corp",
-                    "role": "Software Engineer",
-                    "duration": "2021-2023",
-                    "description": "Developed backend APIs."
-                }
-            ],
-            education=[
-                {
-                    "institution": "University of Tech",
-                    "degree": "B.S. in Computer Science",
-                    "year": "2021"
-                }
-            ]
-        )
+        # Local NLP fallback avoids hardcoded hallucinations if remote LLM is unavailable.
+        return _local_resume_fallback(extracted_text)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Parsing error: {str(e)}")

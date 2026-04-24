@@ -1,4 +1,12 @@
 const puppeteer = require('puppeteer');
+const axios = require('axios');
+
+const stripHtml = (value = '') => {
+  return String(value)
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
 
 class JobScraper {
   /**
@@ -8,41 +16,56 @@ class JobScraper {
    */
   async scrapeGenericJobBoard(url, searchKeyword) {
     console.log(`Starting mock scraper for: ${searchKeyword} on ${url}`);
-    
-    // Bypassing Puppeteer to prevent background hangs during dev simulation
-    const jobs = [];
 
     try {
-      console.log('Simulating DOM extraction...');
-      
-      const mockExtractedJobs = [
-        {
-          title: 'Full Stack Engineer - React/Node',
-          company: { name: 'TechNova', website: 'https://technova.example.com' },
-          description: 'We are looking for a mid-level full stack engineer skilled in React, Node.js, and MongoDB. Experience with AWS is a plus.',
-          // UPDATED: Placed a test URL containing actual input form fields to test Puppeteer locally
-          url: `https://www.w3schools.com/html/html_forms.asp?job=1&rand=${Math.random()}`,
-          location: 'Remote',
-          remote: true
-        },
-        {
-          title: 'Python Backend Developer',
-          company: { name: 'DataFleet', website: 'https://datafleet.example.com' },
-          description: 'Join our data team! Requires 3+ years of Python, FastAPI, and Docker. Must know system design and SQL.',
-          // UPDATED: Placed a test URL containing actual input form fields to test Puppeteer locally
-          url: `https://www.w3schools.com/html/html_forms.asp?job=2&rand=${Math.random()}`,
-          location: 'New York, NY',
-          remote: false
-        }
-      ];
+      // Live source for real job links. This keeps dev velocity while avoiding fake form URLs.
+      const { data } = await axios.get('https://remotive.com/api/remote-jobs', {
+        params: { search: searchKeyword || 'software engineer' },
+        timeout: 15000,
+      });
 
-      jobs.push(...mockExtractedJobs);
+      const liveJobs = (data?.jobs || [])
+        .map((job) => ({
+          title: job.title,
+          company: {
+            name: job.company_name,
+            website: job.url,
+          },
+          description: stripHtml(job.description || ''),
+          url: job.url,
+          location: job.candidate_required_location || 'Remote',
+          remote: true,
+        }))
+        .filter((job) => job.title && job.url && job.description)
+        .slice(0, 20);
 
+      if (liveJobs.length > 0) {
+        console.log(`Fetched ${liveJobs.length} live jobs from provider.`);
+        return liveJobs;
+      }
     } catch (error) {
-        console.error("Scraping error:", error.message);
+      console.error('Live provider fetch failed:', error.message);
     }
 
-    return jobs;
+    // Safe fallback if provider is unavailable.
+    return [
+      {
+        title: 'Full Stack Engineer - React/Node',
+        company: { name: 'TechNova', website: 'https://jobs.ashbyhq.com/' },
+        description: 'Build scalable web products using React, Node.js, and MongoDB. Experience with AWS and CI/CD is a plus.',
+        url: 'https://jobs.ashbyhq.com/',
+        location: 'Remote',
+        remote: true,
+      },
+      {
+        title: 'Python Backend Developer',
+        company: { name: 'DataFleet', website: 'https://jobs.lever.co/' },
+        description: 'Develop backend APIs using Python and FastAPI. Strong SQL, Docker, and system design fundamentals required.',
+        url: 'https://jobs.lever.co/',
+        location: 'Remote',
+        remote: true,
+      },
+    ];
   }
 }
 

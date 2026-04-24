@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import os
 
 from routers import parser, matcher
 
@@ -9,10 +10,22 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Allow CORS since Node.js / React will interact with it
+def _allowed_origins():
+    env_value = os.getenv("AI_SERVICE_CORS_ORIGINS", "")
+    if env_value.strip():
+        return [origin.strip() for origin in env_value.split(",") if origin.strip()]
+
+    return [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5000",
+    ]
+
+
+# Restrict CORS to trusted frontend/backend origins.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
