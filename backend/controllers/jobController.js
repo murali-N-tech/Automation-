@@ -6,7 +6,7 @@ const axios = require('axios');
 
 const syncJobs = async (req, res) => {
     try {
-        const { keyword, location } = req.body;
+        const { keyword, location } = req.body || {};
         
         // 1. Scrape the job board
         const urlToScrape = `https://example-job-board.com/search?q=${keyword}&l=${location}`;

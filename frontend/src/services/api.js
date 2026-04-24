@@ -8,6 +8,10 @@ const api = axios.create({
   withCredentials: true,
 });
 
+const isAuthEndpoint = (url = '') => {
+  return url.includes('/auth/login') || url.includes('/auth/register');
+};
+
 // Intercept requests to add JWT token if exists
 api.interceptors.request.use(
   (config) => {
@@ -18,6 +22,22 @@ api.interceptors.request.use(
     return config;
   },
   (error) => Promise.reject(error)
+);
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error?.response?.status;
+    const url = error?.config?.url || '';
+
+    if (status === 401 && !isAuthEndpoint(url)) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
+
+    return Promise.reject(error);
+  }
 );
 
 export default api;

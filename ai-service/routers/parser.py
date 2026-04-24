@@ -9,7 +9,23 @@ from dotenv import load_dotenv
 from models.schemas import ResumeParseRes
 
 load_dotenv()
-client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY", ""))
+
+# Groq is OpenAI-compatible; keep base URL configurable for future providers.
+client = AsyncOpenAI(
+    api_key=os.getenv("GROQ_API_KEY", ""),
+    base_url=os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+)
+
+
+def _candidate_models():
+    configured = os.getenv("GROQ_MODEL", "").strip()
+    defaults = [
+        "llama-3.1-8b-instant",
+        "llama-3.1-70b-versatile",
+        "llama3-70b-8192",
+        "mixtral-8x7b-32768",
+    ]
+    return [configured] + defaults if configured else defaults
 
 router = APIRouter(prefix="/parser", tags=["Parser"])
 
@@ -32,8 +48,8 @@ async def parse_resume(file: UploadFile = File(...)):
             for page in reader.pages:
                 extracted_text += page.extract_text() or ""
         
-        # Check if OpenAI is configured to run the actual extraction
-        if client.api_key and client.api_key != "your_openai_api_key_here":
+        # Check if Groq API key is configured
+        if client.api_key and client.api_key != "your_groq_api_key_here":
             schema_instruction = """
             You are an expert HR AI logic system. Extract the requested fields from the given resume text.
             Always return pure JSON matching this exact structure:
@@ -51,18 +67,28 @@ async def parse_resume(file: UploadFile = File(...)):
             }
             Do not include Markdown formatting or code blocks outside the JSON string.
             """
-            
-            completion = await client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": schema_instruction},
-                    {"role": "user", "content": f"Resume Text:\n{extracted_text}"}
-                ],
-                response_format={"type": "json_object"}
-            )
-            
-            parsed_json = json.loads(completion.choices[0].message.content)
-            return ResumeParseRes(**parsed_json)
+            last_llm_error = None
+
+            for model_name in _candidate_models():
+                try:
+                    completion = await client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": schema_instruction},
+                            {"role": "user", "content": f"Resume Text:\n{extracted_text}"}
+                        ],
+                        response_format={"type": "json_object"}
+                    )
+
+                    parsed_json = json.loads(completion.choices[0].message.content)
+                    return ResumeParseRes(**parsed_json)
+                except Exception as llm_error:
+                    last_llm_error = llm_error
+
+            # If all remote models fail (deprecation, quota, provider outage),
+            # continue with local fallback instead of failing the upload route.
+            if last_llm_error:
+                print(f"LLM parsing unavailable, using local fallback: {last_llm_error}")
         
         # Here, we would ideally pass `extracted_text` to OpenAI/Anthropic to structure
         # For prototype stability without active API keys, returning mock structure
