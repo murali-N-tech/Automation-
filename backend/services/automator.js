@@ -21,10 +21,31 @@ class SmartApplyAssistant {
   async autofillApplication(jobUrl, userProfile, resumePath) {
     await this.initBrowser();
     const page = await this.browser.newPage();
+    const filledFields = [];
+    const warnings = [];
+
+    const typeIntoFirstMatch = async (selectors, value, label) => {
+      for (const selector of selectors) {
+        const input = await page.$(selector);
+        if (!input) continue;
+
+        await input.click({ clickCount: 3 });
+        await page.keyboard.press('Backspace');
+        await input.type(value);
+        filledFields.push(label);
+        return true;
+      }
+
+      return false;
+    };
 
     try {
       console.log(`Navigating to ${jobUrl}...`);
-      await page.goto(jobUrl, { waitUntil: 'networkidle2' });
+      try {
+        await page.goto(jobUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      } catch (navigationError) {
+        warnings.push(`Navigation warning: ${navigationError.message}`);
+      }
 
       // Example Template-based automation:
       // Here, we would have logic tailored to specific job boards (e.g. Workday, Greenhouse, Ashby)
@@ -34,30 +55,15 @@ class SmartApplyAssistant {
       
       // First Name or Full Name
       const nameSelectors = ['input[name*="name" i]', 'input[id*="name" i]'];
-      for (const selector of nameSelectors) {
-         if (await page.$(selector)) {
-             await page.type(selector, userProfile.name);
-             break;
-         }
-      }
+        await typeIntoFirstMatch(nameSelectors, userProfile.name, 'name');
 
       // Email
       const emailSelectors = ['input[type="email"]', 'input[name*="email" i]'];
-      for (const selector of emailSelectors) {
-         if (await page.$(selector)) {
-             await page.type(selector, userProfile.email);
-             break;
-         }
-      }
+        await typeIntoFirstMatch(emailSelectors, userProfile.email, 'email');
 
       // Phone
       const phoneSelectors = ['input[type="tel"]', 'input[name*="phone" i]'];
-      for (const selector of phoneSelectors) {
-         if (await page.$(selector)) {
-             await page.type(selector, userProfile.phone || '555-555-5555');
-             break;
-         }
-      }
+        await typeIntoFirstMatch(phoneSelectors, userProfile.phone || '555-555-5555', 'phone');
 
       // Resume Upload handling (Mock path injection for demonstration)
       // const uploadSelectors = ['input[type="file"]'];
@@ -76,7 +82,14 @@ class SmartApplyAssistant {
       // Human-in-the-loop: We do NOT click submit automatically. 
       // The user reviews the details, fills out custom CAPTCHAs, and submits manually.
       
-      return { success: true, message: 'Application autofilled. Please review and submit in the opened window.' };
+      return {
+        success: true,
+        message: warnings.length
+          ? 'Application window opened in manual mode. Please review and complete the form manually.'
+          : 'Application autofilled. Please review and submit in the opened window.',
+        filledFields,
+        warnings,
+      };
     } catch (error) {
       console.error('Error during autofill:', error);
       return { success: false, error: error.message };

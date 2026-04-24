@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { Briefcase, Search, Zap, Globe, Clock, ChevronRight } from 'lucide-react';
+import { Briefcase, Zap, Globe, Clock, ChevronRight, CircleCheckBig, CircleX } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 function getCompanyDisplayName(company) {
@@ -15,6 +15,7 @@ export default function Jobs() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [matching, setMatching] = useState(false);
+  const [activeApplicationId, setActiveApplicationId] = useState(null);
 
   const fetchJobs = async () => {
     try {
@@ -62,11 +63,41 @@ export default function Jobs() {
   // UPDATED: Now receives and sends both applicationId and jobId
   const handleApply = async (applicationId, jobId) => {
     try {
-      await api.post('/apply/start', { applicationId, jobId });
-      toast.success('Application automation started');
+      setActiveApplicationId(applicationId);
+      const { data } = await api.post('/apply/start', { applicationId, jobId });
+      toast.success(data.message || 'Application automation started');
+      if (data.filledFields?.length) {
+        toast.success(`Autofilled: ${data.filledFields.join(', ')}`);
+      }
+      if (data.warnings?.length) {
+        toast(data.warnings[0], { icon: '⚠️' });
+      }
+      fetchJobs();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to start apply automator');
+    } finally {
+      setActiveApplicationId(null);
     }
+  };
+
+  const handleComplete = async (applicationId, outcome) => {
+    try {
+      setActiveApplicationId(applicationId);
+      await api.post('/apply/complete', { applicationId, outcome });
+      toast.success(outcome === 'applied' ? 'Marked as Applied' : 'Application status updated');
+      fetchJobs();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update application status');
+    } finally {
+      setActiveApplicationId(null);
+    }
+  };
+
+  const getStatusColor = (status) => {
+    if (status === 'Applied') return 'bg-emerald-100 text-emerald-700';
+    if (status === 'Reviewing') return 'bg-blue-100 text-blue-700';
+    if (status === 'Failed') return 'bg-rose-100 text-rose-700';
+    return 'bg-neutral-100 text-neutral-700';
   };
 
   return (
@@ -99,7 +130,10 @@ export default function Jobs() {
             No matched jobs found. Click "Run AI MatchMaker" if you have scraped jobs and parsed a resume.
           </div>
         ) : (
-          jobs.map(job => (
+          jobs.map(job => {
+            if (!job.jobId) return null;
+
+            return (
             <div key={job._id} className="bg-white p-6 rounded-xl border border-neutral-200 shadow-sm hover:shadow-md transition">
               <div className="flex items-start justify-between mb-4">
                 <div>
@@ -113,11 +147,34 @@ export default function Jobs() {
                   {job.atsScore}% Match
                 </span>
               </div>
+
+              <div className="mb-4 flex items-center justify-between">
+                <span className={`text-xs font-semibold px-2 py-1 rounded-full ${getStatusColor(job.status)}`}>
+                  {job.status}
+                </span>
+                {job.jobId?.url && (
+                  <a
+                    href={job.jobId.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    Open job page
+                  </a>
+                )}
+              </div>
               
               <div className="flex items-center gap-4 text-xs text-neutral-500 mb-6">
                 <span className="flex items-center gap-1"><Briefcase className="w-3 h-3" /> {job.jobId.location}</span>
                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Posted recently</span>
               </div>
+
+              {!!job.missingKeywords?.length && (
+                <div className="mb-4 text-xs">
+                  <p className="text-neutral-700 font-medium mb-1">Missing Keywords</p>
+                  <p className="text-amber-700">{job.missingKeywords.slice(0, 6).join(', ')}</p>
+                </div>
+              )}
 
               <p className="text-sm text-neutral-600 mb-6 line-clamp-3">
                 {job.jobId.description}
@@ -126,12 +183,30 @@ export default function Jobs() {
               {/* UPDATED: Passing both job._id (application) and job.jobId._id (actual job) */}
               <button
                 onClick={() => handleApply(job._id, job.jobId._id)}
-                className="w-full flex items-center justify-center gap-2 py-2 bg-neutral-900 text-white rounded-lg font-medium hover:bg-neutral-800 transition"
+                disabled={activeApplicationId === job._id}
+                className="w-full flex items-center justify-center gap-2 py-2 bg-neutral-900 text-white rounded-lg font-medium hover:bg-neutral-800 transition disabled:opacity-50"
               >
-                Auto Apply <ChevronRight className="w-4 h-4" />
+                {activeApplicationId === job._id ? 'Starting...' : 'Start Semi-Auto Apply'} <ChevronRight className="w-4 h-4" />
               </button>
+
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => handleComplete(job._id, 'applied')}
+                  disabled={activeApplicationId === job._id}
+                  className="flex items-center justify-center gap-2 py-2 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-50 text-sm disabled:opacity-50"
+                >
+                  <CircleCheckBig className="w-4 h-4" /> Mark Applied
+                </button>
+                <button
+                  onClick={() => handleComplete(job._id, 'failed')}
+                  disabled={activeApplicationId === job._id}
+                  className="flex items-center justify-center gap-2 py-2 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50 text-sm disabled:opacity-50"
+                >
+                  <CircleX className="w-4 h-4" /> Mark Failed
+                </button>
+              </div>
             </div>
-          ))
+          )})
         )}
       </div>
     </div>

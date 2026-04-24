@@ -5,5 +5,6 @@ const applyController = require('../controllers/applyController');
 
 // Trigger puppeteer to open and fill a job app form.
 router.post('/start', requireAuth, applyController.applyToJob);
+router.post('/complete', requireAuth, applyController.completeApplication);
 
 module.exports = router;
