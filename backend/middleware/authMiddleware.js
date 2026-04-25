@@ -14,4 +14,9 @@ const requireAuth = (req, res, next) => {
   }
 };
 
-module.exports = { requireAuth };
+// Backward-compatible exports:
+// - const { requireAuth } = require('...')
+// - const authMiddleware = require('...')
+module.exports = requireAuth;
+module.exports.requireAuth = requireAuth;
+module.exports.authMiddleware = requireAuth;

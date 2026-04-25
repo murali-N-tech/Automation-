@@ -9,63 +9,136 @@ const stripHtml = (value = '') => {
 };
 
 class JobScraper {
-  /**
-   * Mock example of a modular scraper.
-   * In a real production scenario, you would have multiple methods here
-   * (e.g., scrapeLinkedIn, scrapeIndeed, scrapeWellfound) handling different DOM structures.
-   */
-  async scrapeGenericJobBoard(url, searchKeyword) {
-    console.log(`Starting mock scraper for: ${searchKeyword} on ${url}`);
-
-    try {
-      // Live source for real job links. This keeps dev velocity while avoiding fake form URLs.
-      const { data } = await axios.get('https://remotive.com/api/remote-jobs', {
-        params: { search: searchKeyword || 'software engineer' },
-        timeout: 15000,
-      });
-
-      const liveJobs = (data?.jobs || [])
-        .map((job) => ({
-          title: job.title,
-          company: {
-            name: job.company_name,
-            website: job.url,
-          },
-          description: stripHtml(job.description || ''),
-          url: job.url,
-          location: job.candidate_required_location || 'Remote',
-          remote: true,
-        }))
-        .filter((job) => job.title && job.url && job.description)
-        .slice(0, 20);
-
-      if (liveJobs.length > 0) {
-        console.log(`Fetched ${liveJobs.length} live jobs from provider.`);
-        return liveJobs;
-      }
-    } catch (error) {
-      console.error('Live provider fetch failed:', error.message);
-    }
-
-    // Safe fallback if provider is unavailable.
-    return [
-      {
-        title: 'Full Stack Engineer - React/Node',
-        company: { name: 'TechNova', website: 'https://jobs.ashbyhq.com/' },
-        description: 'Build scalable web products using React, Node.js, and MongoDB. Experience with AWS and CI/CD is a plus.',
-        url: 'https://jobs.ashbyhq.com/',
-        location: 'Remote',
-        remote: true,
-      },
-      {
-        title: 'Python Backend Developer',
-        company: { name: 'DataFleet', website: 'https://jobs.lever.co/' },
-        description: 'Develop backend APIs using Python and FastAPI. Strong SQL, Docker, and system design fundamentals required.',
-        url: 'https://jobs.lever.co/',
-        location: 'Remote',
-        remote: true,
-      },
+  constructor() {
+    // Keywords specifically helpful for students
+    this.studentKeywords = [
+      'intern',
+      'internship',
+      'entry level',
+      'junior',
+      'new grad',
+      'student'
     ];
+  }
+
+  /**
+   * Main method to trigger all free scrapers concurrently.
+   */
+  async fetchAllFreeJobs(searchKeyword = 'software engineer') {
+    console.log(`🚀 Starting Job Scraper for: ${searchKeyword}`);
+
+    // Run only active scrapers (Remotive removed)
+    const results = await Promise.allSettled([
+      this.fetchFromTheMuse(searchKeyword),
+      this.fetchFromArbeitnow()
+    ]);
+
+    let allJobs = [];
+
+    results.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        allJobs = [...allJobs, ...result.value];
+      } else {
+        console.error('❌ A scraper failed:', result.reason);
+      }
+    });
+
+    // Filter student-friendly jobs
+    const studentJobs = this.filterForStudents(allJobs);
+
+    console.log(
+      `📊 Total jobs fetched: ${allJobs.length}, Student matches: ${studentJobs.length}`
+    );
+
+    return studentJobs.length > 0 ? studentJobs : allJobs;
+  }
+
+  // --- FREE API 1: The Muse ---
+  async fetchFromTheMuse(searchKeyword) {
+    try {
+      const { data } = await axios.get(
+        'https://www.themuse.com/api/public/jobs',
+        {
+          params: {
+            category: 'Software Engineer',
+            page: 1
+          },
+          timeout: 10000
+        }
+      );
+
+      return (data?.results || []).map((job) => ({
+        title: job.name,
+        company: {
+          name: job.company.name,
+          website: job.refs.landing_page
+        },
+        description: stripHtml(job.contents),
+        url: job.refs.landing_page,
+        location: job.locations[0]?.name || 'Flexible',
+        source: 'The Muse',
+        remote:
+          job.locations[0]?.name
+            ?.toLowerCase()
+            .includes('remote') || false
+      }));
+    } catch (error) {
+      console.error('❌ The Muse fetch failed:', error.message);
+      return [];
+    }
+  }
+
+  // --- FREE API 2: Arbeitnow ---
+  async fetchFromArbeitnow() {
+    try {
+      const { data } = await axios.get(
+        'https://www.arbeitnow.com/api/job-board-api',
+        {
+          timeout: 10000
+        }
+      );
+
+      return (data?.data || []).map((job) => ({
+        title: job.title,
+        company: {
+          name: job.company_name,
+          website: job.url
+        },
+        description: stripHtml(job.description),
+        url: job.url,
+        location: job.location || 'Remote',
+        source: 'Arbeitnow',
+        remote: job.remote
+      }));
+    } catch (error) {
+      console.error('❌ Arbeitnow fetch failed:', error.message);
+      return [];
+    }
+  }
+
+  // --- FILTER: Student Roles ---
+  filterForStudents(jobs) {
+    return jobs.filter((job) => {
+      const lowerTitle = job.title.toLowerCase();
+      return this.studentKeywords.some((keyword) =>
+        lowerTitle.includes(keyword)
+      );
+    });
+  }
+
+  // --- FUTURE: Puppeteer Scraper ---
+  async scrapeWithPuppeteer(url) {
+    console.log(`🤖 Starting Puppeteer for ${url}...`);
+
+    const browser = await puppeteer.launch({ headless: "new" });
+    const page = await browser.newPage();
+
+    // Example placeholder
+    // await page.goto(url);
+    // const titles = await page.$$eval('.job-title', nodes => nodes.map(n => n.innerText));
+
+    await browser.close();
+    return [];
   }
 }
 

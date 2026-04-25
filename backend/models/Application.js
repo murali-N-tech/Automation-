@@ -22,7 +22,7 @@ const applicationSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Saved', 'Reviewing', 'Applied', 'Rejected', 'Interviewing', 'Offer', 'Failed'],
+    enum: ['Saved', 'Ready to Apply', 'Reviewing', 'Applied', 'Rejected', 'Interviewing', 'Offer', 'Failed'],
     default: 'Saved'
   },
   atsScore: {
@@ -46,7 +46,8 @@ const applicationSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
     index: true
-  }
+  },
+  coverLetter: { type: String }
 });
 
 // A user should typically apply to the same job mostly once

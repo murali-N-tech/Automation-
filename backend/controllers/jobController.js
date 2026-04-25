@@ -2,6 +2,7 @@ const Job = require('../models/Job');
 const Application = require('../models/Application');
 const Resume = require('../models/Resume');
 const jobScraper = require('../services/jobScraper');
+const llmService = require('../services/llmService');
 const axios = require('axios');
 
 const syncJobs = async (req, res) => {
@@ -10,7 +11,12 @@ const syncJobs = async (req, res) => {
         
         // 1. Scrape the job board
         const urlToScrape = `https://example-job-board.com/search?q=${keyword}&l=${location}`;
-        const scrapedJobs = await jobScraper.scrapeGenericJobBoard(urlToScrape, keyword || 'Software Engineer');
+        const searchTerm = keyword || 'Software Engineer';
+
+        // Support both old and new scraper APIs.
+        const scrapedJobs = jobScraper.fetchAllFreeJobs
+            ? await jobScraper.fetchAllFreeJobs(searchTerm)
+            : await jobScraper.scrapeGenericJobBoard(urlToScrape, searchTerm);
         
         const savedJobs = [];
         
@@ -38,6 +44,7 @@ const syncJobs = async (req, res) => {
             // Build new job
             const job = new Job({
                 ...jobData,
+                description: String(jobData.description || '').trim() || 'Description unavailable from source.',
                 requiredSkills
             });
             await job.save();
@@ -79,6 +86,16 @@ const matchJobs = async (req, res) => {
                 });
 
                 const { ats_score, missing_keywords, recommendation } = matchRes.data;
+                const isTopMatch = Number(ats_score) >= 75;
+
+                let generatedLetter = '';
+                if (isTopMatch) {
+                    generatedLetter = await llmService.generateCoverLetter(
+                        job.title || 'Software Engineer',
+                        job.company?.name || 'the company',
+                        userSkills || []
+                    );
+                }
                 
                 // Create an Application tracking schema for this job
                 const application = new Application({
@@ -88,7 +105,8 @@ const matchJobs = async (req, res) => {
                     atsScore: ats_score,
                     decision: recommendation,
                     missingKeywords: missing_keywords,
-                    status: 'Saved' // Starts out as saved/recommended
+                    status: isTopMatch ? 'Ready to Apply' : 'Saved',
+                    coverLetter: generatedLetter
                 });
                 
                 await application.save();

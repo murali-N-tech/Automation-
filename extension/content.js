@@ -1,110 +1,132 @@
-const ATS_MAPPERS = {
-  greenhouse: {
-    selectors: {
-      firstName: ['input#first_name', 'input[name="first_name"]'],
-      lastName: ['input#last_name', 'input[name="last_name"]'],
-      email: ['input#email', 'input[name="email"]'],
-      phone: ['input#phone', 'input[name="phone"]']
-    }
-  },
-  lever: {
-    selectors: {
-      firstName: ['input[name="name"]'],
-      email: ['input[name="email"]', 'input[type="email"]'],
-      phone: ['input[name="phone"]', 'input[type="tel"]']
-    }
-  },
-  workday: {
-    selectors: {
-      firstName: ['input[data-automation-id*="firstName"]'],
-      lastName: ['input[data-automation-id*="lastName"]'],
-      email: ['input[data-automation-id*="email"]', 'input[type="email"]'],
-      phone: ['input[data-automation-id*="phone"]', 'input[type="tel"]']
-    }
-  }
-};
+window.addEventListener("message", async (event) => {
+  if (event.source !== window || event.data.type !== "START_AUTOFILL") return;
 
-function detectProvider() {
-  const host = window.location.hostname;
-  if (host.includes('greenhouse')) return 'greenhouse';
-  if (host.includes('lever')) return 'lever';
-  if (host.includes('workday')) return 'workday';
-  return null;
-}
+  console.log("🚀 Hire-Me AI: Starting autofill...");
 
-function setInputValue(input, value) {
-  if (!input || !value) return false;
-  input.focus();
-  input.value = value;
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.dispatchEvent(new Event('change', { bubbles: true }));
-  return true;
-}
+  try {
+    // ================= FETCH DATA =================
+    // Replace this with real backend call or chrome.storage in production
+    const context = {
+      profile: {
+        name: "Chinthada Murali naga raju",
+        email: "muralinaga826@example.com",
+        phone: "9063453458",
+        linkedin: "www.linkedin.com/in/chinthada-murali-nagaraju-0746912b9"
+      },
+      coverLetter: `Dear Hiring Manager,
 
-function firstMatch(selectors) {
-  for (const selector of selectors || []) {
-    const el = document.querySelector(selector);
-    if (el) return el;
-  }
-  return null;
-}
+I am excited to apply for this role. With experience in Python, React, and Node.js, I am confident I can contribute effectively.
 
-async function loadApplyContext() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['apoToken', 'apoApplicationId'], async (data) => {
-      const token = data.apoToken;
-      const applicationId = data.apoApplicationId;
-      if (!token || !applicationId) {
-        alert('AI Smart Apply: Missing token or application id in extension popup.');
-        return resolve(null);
+Thank you for your time.
+
+Sincerely,
+Murali`
+    };
+
+    const profile = context.profile;
+
+    // ================= HELPERS =================
+    const setInputValue = (el, value) => {
+      if (!el || !value) return false;
+      el.focus();
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    };
+
+    const firstMatch = (selectors) => {
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el) return el;
       }
+      return null;
+    };
 
-      try {
-        const response = await fetch(`http://localhost:5000/api/apply/context/${applicationId}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+    // ================= FIELD SELECTORS =================
+    const selectors = {
+      firstName: [
+        'input[name*="first"]',
+        'input[id*="first"]',
+        'input[placeholder*="First"]'
+      ],
+      lastName: [
+        'input[name*="last"]',
+        'input[id*="last"]',
+        'input[placeholder*="Last"]'
+      ],
+      email: [
+        'input[type="email"]',
+        'input[name*="email"]'
+      ],
+      phone: [
+        'input[type="tel"]',
+        'input[name*="phone"]'
+      ],
+      coverLetter: [
+        'textarea[name*="cover"]',
+        'textarea[id*="cover"]',
+        'textarea',
+        'div[contenteditable="true"]'
+      ]
+    };
 
-        if (!response.ok) {
-          alert('AI Smart Apply: Failed to load profile context from backend.');
-          return resolve(null);
-        }
+    // ================= NAME SPLIT =================
+    const nameParts = (profile.name || '').split(' ');
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
 
-        resolve(await response.json());
-      } catch (err) {
-        console.error(err);
-        alert('AI Smart Apply: Unable to connect to backend API.');
-        resolve(null);
-      }
-    });
-  });
-}
+    const filled = [];
 
-async function autofillForm() {
-  const provider = detectProvider();
-  if (!provider || !ATS_MAPPERS[provider]) return;
+    // ================= GENERIC AUTOFILL =================
+    if (setInputValue(firstMatch(selectors.firstName), firstName)) {
+      filled.push('first name');
+    }
 
-  const context = await loadApplyContext();
-  if (!context) return;
+    if (setInputValue(firstMatch(selectors.lastName), lastName)) {
+      filled.push('last name');
+    }
 
-  const profile = context.profile || {};
-  const nameParts = (profile.name || '').trim().split(/\s+/);
-  const firstName = nameParts[0] || '';
-  const lastName = nameParts.slice(1).join(' ');
+    if (setInputValue(firstMatch(selectors.email), profile.email || '')) {
+      filled.push('email');
+    }
 
-  const selectors = ATS_MAPPERS[provider].selectors;
-  const filled = [];
+    if (setInputValue(firstMatch(selectors.phone), profile.phone || '')) {
+      filled.push('phone');
+    }
 
-  if (setInputValue(firstMatch(selectors.firstName), firstName)) filled.push('first name');
-  if (setInputValue(firstMatch(selectors.lastName), lastName)) filled.push('last name');
-  if (setInputValue(firstMatch(selectors.email), profile.email || '')) filled.push('email');
-  if (setInputValue(firstMatch(selectors.phone), profile.phone || '')) filled.push('phone');
+    // ================= NEW: COVER LETTER =================
+    if (
+      context.coverLetter &&
+      setInputValue(firstMatch(selectors.coverLetter), context.coverLetter)
+    ) {
+      filled.push('cover letter');
+    }
 
-  console.log(`AI Smart Apply: Filled fields (${provider}):`, filled.join(', ') || 'none');
-  alert('AI Smart Apply: Form filled. Please review everything and submit manually.');
-}
+    // ================= GREENHOUSE SPECIAL HANDLING =================
+    if (window.location.href.includes('greenhouse.io')) {
+      console.log("🌿 Greenhouse detected - applying specific selectors");
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === 'APO_AUTOFILL') {
-    autofillForm();
+      setInputValue(document.querySelector('#first_name'), firstName);
+      setInputValue(document.querySelector('#last_name'), lastName);
+      setInputValue(document.querySelector('#email'), profile.email);
+      setInputValue(document.querySelector('#phone'), profile.phone);
+
+      // LinkedIn field (common in Greenhouse)
+      setInputValue(
+        document.querySelector('[id*="linkedin"]'),
+        profile.linkedin
+      );
+    }
+
+    // ================= RESULT =================
+    console.log(
+      `✅ AI Smart Apply: Filled fields → ${filled.join(', ') || 'none'}`
+    );
+
+    alert("✅ Hire-Me AI: Autofill complete! Please review before submitting.");
+
+  } catch (err) {
+    console.error("❌ Autofill failed:", err);
   }
 });

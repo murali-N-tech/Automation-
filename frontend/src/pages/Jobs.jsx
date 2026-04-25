@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { Briefcase, Zap, Globe, Clock, ChevronRight, CircleCheckBig, CircleX } from 'lucide-react';
+import { Briefcase, Zap, Globe, Clock, ChevronRight, CircleCheckBig, CircleX, FileText, Edit3 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 function getCompanyDisplayName(company) {
@@ -17,6 +17,12 @@ export default function Jobs() {
   const [matching, setMatching] = useState(false);
   const [activeApplicationId, setActiveApplicationId] = useState(null);
   const [hasResume, setHasResume] = useState(false);
+  
+  // States for viewing and editing cover letters
+  const [expandedLetterId, setExpandedLetterId] = useState(null);
+  const [editingLetterId, setEditingLetterId] = useState(null);
+  const [editedLetterText, setEditedLetterText] = useState("");
+  const [savingLetter, setSavingLetter] = useState(false);
 
   const fetchJobs = async () => {
     try {
@@ -48,7 +54,7 @@ export default function Jobs() {
     try {
       await api.post('/jobs/sync');
       toast.success('Jobs synced successfully');
-      setJobs([]); // Clear before fetch
+      setJobs([]); 
       fetchJobs();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Job sync failed');
@@ -71,22 +77,14 @@ export default function Jobs() {
     }
   };
 
-  // UPDATED: Now receives and sends both applicationId and jobId
-  const handleApply = async (applicationId, jobId) => {
-    try {
-      setActiveApplicationId(applicationId);
-      const { data } = await api.post('/apply/start', { applicationId, jobId });
-      toast.success(data.message || 'Extension-assisted apply prepared');
-      if (data.jobUrl) {
-        window.open(data.jobUrl, '_blank', 'noopener,noreferrer');
-      }
-      toast('Use the Chrome extension on the opened job page, then mark outcome here.', { icon: '🧩' });
-      fetchJobs();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to start extension-assisted apply');
-    } finally {
-      setActiveApplicationId(null);
+  const handleApply = async (jobUrl) => {
+    if (!jobUrl) {
+      toast.error('Missing job URL');
+      return;
     }
+
+    window.open(jobUrl, '_blank', 'noopener,noreferrer');
+    toast('Opened job page. Use the Chrome extension to autofill.', { icon: '🧩' });
   };
 
   const handleComplete = async (applicationId, outcome) => {
@@ -102,7 +100,28 @@ export default function Jobs() {
     }
   };
 
+  // NEW: Save the edited cover letter to the database
+  const handleSaveLetter = async (applicationId) => {
+    setSavingLetter(true);
+    try {
+      await api.put(`/apply/${applicationId}/cover-letter`, { coverLetter: editedLetterText });
+      toast.success('Cover letter updated successfully!');
+      
+      // Update local state without needing to refetch all jobs
+      setJobs(jobs.map(job => 
+        job._id === applicationId ? { ...job, coverLetter: editedLetterText } : job
+      ));
+      
+      setEditingLetterId(null);
+    } catch (err) {
+      toast.error('Failed to save cover letter');
+    } finally {
+      setSavingLetter(false);
+    }
+  };
+
   const getStatusColor = (status) => {
+    if (status === 'Ready to Apply') return 'bg-purple-100 text-purple-800 border border-purple-200';
     if (status === 'Applied') return 'bg-emerald-100 text-emerald-700';
     if (status === 'Reviewing') return 'bg-blue-100 text-blue-700';
     if (status === 'Failed') return 'bg-rose-100 text-rose-700';
@@ -157,7 +176,6 @@ export default function Jobs() {
                   </h2>
                   <p className="text-neutral-500">{getCompanyDisplayName(job.jobId.company)}</p>
                 </div>
-                {/* UPDATED: Changed job.matchScore to job.atsScore */}
                 <span className="flex items-center gap-1 font-bold text-sm bg-blue-50 text-blue-700 px-2 py-1 rounded-lg">
                   {job.atsScore}% Match
                 </span>
@@ -192,16 +210,77 @@ export default function Jobs() {
               )}
 
               <p className="text-sm text-neutral-600 mb-6 line-clamp-3">
-                {job.jobId.description}
+                {job.jobId.description || 'Description unavailable for this job listing.'}
               </p>
 
-              {/* UPDATED: Passing both job._id (application) and job.jobId._id (actual job) */}
+              {/* COVER LETTER VIEWER AND EDITOR */}
+              {job.coverLetter && (
+                <div className="mb-6">
+                  <button
+                    onClick={() => {
+                      if (expandedLetterId === job._id) {
+                        setExpandedLetterId(null);
+                        setEditingLetterId(null);
+                      } else {
+                        setExpandedLetterId(job._id);
+                      }
+                    }}
+                    className="flex items-center gap-2 text-sm font-semibold text-purple-700 hover:text-purple-800 transition-colors mb-2"
+                  >
+                    <FileText className="w-4 h-4" />
+                    {expandedLetterId === job._id ? 'Hide AI Cover Letter' : '✨ View AI Cover Letter'}
+                  </button>
+
+                  {expandedLetterId === job._id && (
+                    <div className="mt-2">
+                      {editingLetterId === job._id ? (
+                        <div className="space-y-3">
+                          <textarea
+                            value={editedLetterText}
+                            onChange={(e) => setEditedLetterText(e.target.value)}
+                            className="w-full p-3 text-sm text-neutral-800 border border-purple-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none min-h-50"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleSaveLetter(job._id)}
+                              disabled={savingLetter}
+                              className="px-4 py-2 bg-purple-600 text-white text-xs font-medium rounded-md hover:bg-purple-700 disabled:opacity-50 transition"
+                            >
+                              {savingLetter ? 'Saving...' : 'Save Changes'}
+                            </button>
+                            <button
+                              onClick={() => setEditingLetterId(null)}
+                              className="px-4 py-2 bg-neutral-100 text-neutral-700 text-xs font-medium rounded-md hover:bg-neutral-200 transition"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-4 bg-purple-50 border border-purple-100 rounded-lg text-sm text-neutral-800 whitespace-pre-wrap relative group">
+                          {job.coverLetter}
+                          <button
+                            onClick={() => {
+                              setEditingLetterId(job._id);
+                              setEditedLetterText(job.coverLetter);
+                            }}
+                            className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1.5 bg-white text-purple-600 rounded-md shadow-sm border border-purple-200 opacity-0 group-hover:opacity-100 transition hover:bg-purple-50 text-xs font-bold"
+                          >
+                            <Edit3 className="w-3 h-3" /> Edit
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <button
-                onClick={() => handleApply(job._id, job.jobId._id)}
-                disabled={activeApplicationId === job._id || !hasResume}
+                onClick={() => handleApply(job.jobId.url)}
+                disabled={!hasResume}
                 className="w-full flex items-center justify-center gap-2 py-2 bg-neutral-900 text-white rounded-lg font-medium hover:bg-neutral-800 transition disabled:opacity-50"
               >
-                {activeApplicationId === job._id ? 'Starting...' : 'Open + Extension Apply'} <ChevronRight className="w-4 h-4" />
+                Open + Extension Apply <ChevronRight className="w-4 h-4" />
               </button>
 
               <div className="mt-3 grid grid-cols-2 gap-2">

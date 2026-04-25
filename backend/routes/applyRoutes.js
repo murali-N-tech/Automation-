@@ -7,5 +7,7 @@ const applyController = require('../controllers/applyController');
 router.post('/start', requireAuth, applyController.applyToJob);
 router.post('/complete', requireAuth, applyController.completeApplication);
 router.get('/context/:applicationId', requireAuth, applyController.getApplyContext);
+router.put('/:applicationId/cover-letter', requireAuth, applyController.updateCoverLetter);
+router.put('/cover-letter', requireAuth, applyController.updateCoverLetter);
 
 module.exports = router;

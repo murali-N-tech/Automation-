@@ -6,6 +6,7 @@ const Resume = require('../models/Resume');
 const applyToJob = async (req, res) => {
     try {
         const { applicationId, jobId } = req.body;
+
         if (!jobId) {
             return res.status(400).json({ error: "jobId is required." });
         }
@@ -14,20 +15,29 @@ const applyToJob = async (req, res) => {
         const job = await Job.findById(jobId);
 
         if (!job || !user) {
-             return res.status(404).json({ error: "Job or User not found." });
+            return res.status(404).json({ error: "Job or User not found." });
         }
 
         let application = null;
+
         if (applicationId) {
-            application = await Application.findOne({ _id: applicationId, userId: req.user.id });
+            application = await Application.findOne({
+                _id: applicationId,
+                userId: req.user.id
+            });
         }
 
         if (!application) {
-            application = await Application.findOne({ userId: req.user.id, jobId: job._id });
+            application = await Application.findOne({
+                userId: req.user.id,
+                jobId: job._id
+            });
         }
 
         if (!application) {
-            return res.status(404).json({ error: "Application record not found for this job." });
+            return res.status(404).json({
+                error: "Application record not found for this job."
+            });
         }
 
         application.status = "Reviewing";
@@ -48,20 +58,27 @@ const applyToJob = async (req, res) => {
 
     } catch (err) {
         console.error(err);
-        return res.status(500).json({ error: "Error initiating smart applications." });
+        return res.status(500).json({
+            error: "Error initiating smart applications."
+        });
     }
 };
+
 
 const getApplyContext = async (req, res) => {
     try {
         const applicationId = req.params.applicationId;
+
         const user = await User.findById(req.user.id).lean();
 
         if (!user) {
             return res.status(404).json({ error: 'User not found.' });
         }
 
-        const application = await Application.findOne({ _id: applicationId, userId: req.user.id })
+        const application = await Application.findOne({
+            _id: applicationId,
+            userId: req.user.id
+        })
             .populate('jobId')
             .populate('resumeId')
             .lean();
@@ -70,7 +87,11 @@ const getApplyContext = async (req, res) => {
             return res.status(404).json({ error: 'Application not found.' });
         }
 
-        const latestResume = application.resumeId || await Resume.findOne({ userId: req.user.id }).sort({ createdAt: -1 }).lean();
+        const latestResume =
+            application.resumeId ||
+            await Resume.findOne({ userId: req.user.id })
+                .sort({ createdAt: -1 })
+                .lean();
 
         const profile = {
             name: user.name || '',
@@ -81,14 +102,20 @@ const getApplyContext = async (req, res) => {
             experience: latestResume?.parsedData?.experience || [],
         };
 
+        // ✅ UPDATED RESPONSE WITH COVER LETTER
         return res.json({
             applicationId: application._id,
             profile,
+
+            // ---> NEW: Send AI-generated cover letter <---
+            coverLetter: application.coverLetter || '',
+
             resume: {
                 id: latestResume?._id || null,
                 title: latestResume?.title || null,
                 rawFileUrl: latestResume?.rawFileUrl || null,
             },
+
             job: {
                 id: application.jobId?._id || null,
                 title: application.jobId?.title || '',
@@ -98,23 +125,35 @@ const getApplyContext = async (req, res) => {
                 description: application.jobId?.description || '',
             }
         });
+
     } catch (err) {
         console.error(err);
-        return res.status(500).json({ error: 'Error loading extension apply context.' });
+        return res.status(500).json({
+            error: 'Error loading extension apply context.'
+        });
     }
 };
+
 
 const completeApplication = async (req, res) => {
     try {
         const { applicationId, outcome, notes } = req.body;
 
         if (!applicationId || !outcome) {
-            return res.status(400).json({ error: "applicationId and outcome are required." });
+            return res.status(400).json({
+                error: "applicationId and outcome are required."
+            });
         }
 
-        const application = await Application.findOne({ _id: applicationId, userId: req.user.id });
+        const application = await Application.findOne({
+            _id: applicationId,
+            userId: req.user.id
+        });
+
         if (!application) {
-            return res.status(404).json({ error: "Application not found." });
+            return res.status(404).json({
+                error: "Application not found."
+            });
         }
 
         if (outcome === 'applied') {
@@ -132,11 +171,46 @@ const completeApplication = async (req, res) => {
 
         await application.save();
 
-        return res.json({ success: true, application });
+        return res.json({
+            success: true,
+            application
+        });
+
     } catch (err) {
         console.error(err);
-        return res.status(500).json({ error: "Error updating application status." });
+        return res.status(500).json({
+            error: "Error updating application status."
+        });
+    }
+};
+const updateCoverLetter = async (req, res) => {
+    try {
+        const applicationId = req.params.applicationId || req.body.applicationId;
+        const { coverLetter } = req.body;
+
+        if (!applicationId) {
+            return res.status(400).json({ error: "applicationId is required." });
+        }
+
+        const application = await Application.findOne({ _id: applicationId, userId: req.user.id });
+        
+        if (!application) {
+            return res.status(404).json({ error: "Application not found." });
+        }
+
+        application.coverLetter = coverLetter;
+        await application.save();
+
+        return res.json({ success: true, message: "Cover letter updated" });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ error: "Error updating cover letter." });
     }
 };
 
-module.exports = { applyToJob, completeApplication, getApplyContext };
+module.exports = {
+    applyToJob,
+    completeApplication,
+    getApplyContext,
+    updateCoverLetter
+};
