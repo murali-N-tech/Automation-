@@ -3,8 +3,9 @@ const router = express.Router();
 const { requireAuth } = require('../middleware/authMiddleware');
 const applyController = require('../controllers/applyController');
 
-// Trigger puppeteer to open and fill a job app form.
+// Mark application as ready for extension-assisted apply flow.
 router.post('/start', requireAuth, applyController.applyToJob);
 router.post('/complete', requireAuth, applyController.completeApplication);
+router.get('/context/:applicationId', requireAuth, applyController.getApplyContext);
 
 module.exports = router;

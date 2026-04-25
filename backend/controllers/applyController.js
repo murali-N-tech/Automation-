@@ -1,7 +1,7 @@
-const SmartApplyAssistant = require('../services/automator');
 const Application = require('../models/Application');
 const Job = require('../models/Job');
 const User = require('../models/User');
+const Resume = require('../models/Resume');
 
 const applyToJob = async (req, res) => {
     try {
@@ -30,47 +30,77 @@ const applyToJob = async (req, res) => {
             return res.status(404).json({ error: "Application record not found for this job." });
         }
 
-        // Simulating the user's data structure to fill out the form
-        const userProfile = {
-            name: user.name || "Candidate",
-            email: user.email || "candidate@example.com",
-            phone: "555-0100"
-        };
-        
-        let resumePath = null;
-        // In real impl, we fetch resume path from the user's associated parsed resume in the DB
+        application.status = "Reviewing";
+        application.notes = `Extension-assisted apply started on ${new Date().toLocaleString()}`;
+        await application.save();
 
-        // Trigger Puppeteer logic
-        // This will launch Chrome so the user can verify fields manually (Human-in-the-loop)
-        const result = await SmartApplyAssistant.autofillApplication(job.url, userProfile, resumePath);
-
-        if (result.success) {
-            application.status = "Reviewing";
-            application.notes = `Autofill started on ${new Date().toLocaleString()}`;
-            await application.save();
-
-            return res.json({
-                success: true,
-                message: result.message,
-                applicationId: application._id,
-                filledFields: result.filledFields || [],
-                warnings: result.warnings || [],
-                nextSteps: [
-                    "Review the opened browser form and verify all autofilled fields.",
-                    "Upload any required files and solve CAPTCHA manually.",
-                    "Submit in browser, then click 'Mark Applied' in the app."
-                ]
-            });
-        } else {
-            application.status = "Failed";
-            application.notes = `Autofill failed: ${result.error}`;
-            await application.save();
-            return res.status(500).json({ error: result.error });
-        }
+        return res.json({
+            success: true,
+            message: 'Application marked for extension-assisted review.',
+            applicationId: application._id,
+            jobUrl: job.url,
+            nextSteps: [
+                'Open the job URL and use the AI Placement Officer Chrome extension.',
+                'Review all autofilled values before final submit.',
+                "After submitting, click 'Mark Applied' in the app."
+            ]
+        });
 
     } catch (err) {
         console.error(err);
         return res.status(500).json({ error: "Error initiating smart applications." });
+    }
+};
+
+const getApplyContext = async (req, res) => {
+    try {
+        const applicationId = req.params.applicationId;
+        const user = await User.findById(req.user.id).lean();
+
+        if (!user) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        const application = await Application.findOne({ _id: applicationId, userId: req.user.id })
+            .populate('jobId')
+            .populate('resumeId')
+            .lean();
+
+        if (!application) {
+            return res.status(404).json({ error: 'Application not found.' });
+        }
+
+        const latestResume = application.resumeId || await Resume.findOne({ userId: req.user.id }).sort({ createdAt: -1 }).lean();
+
+        const profile = {
+            name: user.name || '',
+            email: user.email || '',
+            phone: '',
+            skills: latestResume?.parsedData?.skills || [],
+            projects: latestResume?.parsedData?.projects || [],
+            experience: latestResume?.parsedData?.experience || [],
+        };
+
+        return res.json({
+            applicationId: application._id,
+            profile,
+            resume: {
+                id: latestResume?._id || null,
+                title: latestResume?.title || null,
+                rawFileUrl: latestResume?.rawFileUrl || null,
+            },
+            job: {
+                id: application.jobId?._id || null,
+                title: application.jobId?.title || '',
+                company: application.jobId?.company || null,
+                location: application.jobId?.location || '',
+                url: application.jobId?.url || '',
+                description: application.jobId?.description || '',
+            }
+        });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ error: 'Error loading extension apply context.' });
     }
 };
 
@@ -102,15 +132,6 @@ const completeApplication = async (req, res) => {
 
         await application.save();
 
-        // Close the review browser once user has marked an explicit outcome.
-        if (outcome === 'applied' || outcome === 'failed') {
-            try {
-                await SmartApplyAssistant.closeBrowser();
-            } catch (closeErr) {
-                console.error('Failed to close automation browser:', closeErr.message);
-            }
-        }
-
         return res.json({ success: true, application });
     } catch (err) {
         console.error(err);
@@ -118,4 +139,4 @@ const completeApplication = async (req, res) => {
     }
 };
 
-module.exports = { applyToJob, completeApplication };
+module.exports = { applyToJob, completeApplication, getApplyContext };

@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "AI Placement Officer - Smart Apply",
+  "version": "1.0.0",
+  "description": "Autofill supported ATS application forms using your AI Placement Officer profile.",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": [
+    "*://*.greenhouse.io/*",
+    "*://*.workday.com/*",
+    "*://jobs.lever.co/*",
+    "http://localhost:5000/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "AI Smart Apply",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.greenhouse.io/*",
+        "*://*.workday.com/*",
+        "*://jobs.lever.co/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

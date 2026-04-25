@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>AI Smart Apply</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 12px; width: 300px; }
+      .row { margin-bottom: 10px; }
+      input, button { width: 100%; box-sizing: border-box; padding: 8px; }
+      button { cursor: pointer; }
+      .hint { font-size: 12px; color: #555; }
+    </style>
+  </head>
+  <body>
+    <div class="row">
+      <label>Backend Token</label>
+      <input id="token" type="password" placeholder="Paste JWT token" />
+    </div>
+    <div class="row">
+      <label>Application ID</label>
+      <input id="applicationId" type="text" placeholder="Mongo application id" />
+    </div>
+    <div class="row">
+      <button id="save">Save & Autofill Current Tab</button>
+    </div>
+    <div class="hint">Open a supported ATS page (Greenhouse/Lever/Workday), then run autofill.</div>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -13,9 +13,21 @@ const dashboardRoutes = require('./routes/dashboardRoutes');
 
 const app = express();
 
+const allowedWebOrigins = ['http://localhost:5173', 'http://localhost:5174'];
+
+const corsOrigin = (origin, callback) => {
+  if (!origin) return callback(null, true);
+
+  if (allowedWebOrigins.includes(origin) || origin.startsWith('chrome-extension://')) {
+    return callback(null, true);
+  }
+
+  return callback(new Error('Not allowed by CORS'));
+};
+
 // Middleware
 app.use(cors({ 
-  origin: ['http://localhost:5173', 'http://localhost:5174'], 
+  origin: corsOrigin,
   credentials: true 
 }));
 app.use(express.json());

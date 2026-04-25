@@ -1,6 +1,7 @@
 const Application = require('../models/Application');
 const Job = require('../models/Job');
 const Resume = require('../models/Resume');
+const mongoose = require('mongoose');
 
 exports.getDashboardStats = async (req, res) => {
   try {
@@ -20,8 +21,7 @@ exports.getDashboardStats = async (req, res) => {
     });
 
     const statsAgg = await Application.aggregate([
-      // Must cast string to ObjectId if req.user.id is a string; assuming Mongoose handles it or we match exact
-      { $match: { atsScore: { $exists: true, $ne: null } } },
+      { $match: { userId: new mongoose.Types.ObjectId(userId), atsScore: { $exists: true, $ne: null } } },
       { $group: { _id: null, avgScore: { $avg: "$atsScore" } } }
     ]);
     const averageAtsScore = statsAgg.length > 0 ? Math.round(statsAgg[0].avgScore) : 0;

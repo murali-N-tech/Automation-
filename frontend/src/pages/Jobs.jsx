@@ -16,6 +16,7 @@ export default function Jobs() {
   const [syncing, setSyncing] = useState(false);
   const [matching, setMatching] = useState(false);
   const [activeApplicationId, setActiveApplicationId] = useState(null);
+  const [hasResume, setHasResume] = useState(false);
 
   const fetchJobs = async () => {
     try {
@@ -30,6 +31,16 @@ export default function Jobs() {
 
   useEffect(() => {
     fetchJobs();
+    const checkResume = async () => {
+      try {
+        const { data } = await api.get('/resumes');
+        setHasResume(Array.isArray(data) && data.length > 0);
+      } catch {
+        setHasResume(false);
+      }
+    };
+
+    checkResume();
   }, []);
 
   const handleSyncJobs = async () => {
@@ -65,16 +76,14 @@ export default function Jobs() {
     try {
       setActiveApplicationId(applicationId);
       const { data } = await api.post('/apply/start', { applicationId, jobId });
-      toast.success(data.message || 'Application automation started');
-      if (data.filledFields?.length) {
-        toast.success(`Autofilled: ${data.filledFields.join(', ')}`);
+      toast.success(data.message || 'Extension-assisted apply prepared');
+      if (data.jobUrl) {
+        window.open(data.jobUrl, '_blank', 'noopener,noreferrer');
       }
-      if (data.warnings?.length) {
-        toast(data.warnings[0], { icon: '⚠️' });
-      }
+      toast('Use the Chrome extension on the opened job page, then mark outcome here.', { icon: '🧩' });
       fetchJobs();
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to start apply automator');
+      toast.error(err.response?.data?.error || 'Failed to start extension-assisted apply');
     } finally {
       setActiveApplicationId(null);
     }
@@ -114,13 +123,19 @@ export default function Jobs() {
           </button>
           <button
             onClick={handleMatchJobs}
-            disabled={matching}
+            disabled={matching || !hasResume}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm disabled:opacity-50"
           >
             <Zap className="w-4 h-4" /> {matching ? 'Matching...' : 'Run AI MatchMaker'}
           </button>
         </div>
       </div>
+
+      {!hasResume && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800 text-sm">
+          Upload and parse a resume first to unlock AI matching and apply actions.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {loading ? (
@@ -183,10 +198,10 @@ export default function Jobs() {
               {/* UPDATED: Passing both job._id (application) and job.jobId._id (actual job) */}
               <button
                 onClick={() => handleApply(job._id, job.jobId._id)}
-                disabled={activeApplicationId === job._id}
+                disabled={activeApplicationId === job._id || !hasResume}
                 className="w-full flex items-center justify-center gap-2 py-2 bg-neutral-900 text-white rounded-lg font-medium hover:bg-neutral-800 transition disabled:opacity-50"
               >
-                {activeApplicationId === job._id ? 'Starting...' : 'Start Semi-Auto Apply'} <ChevronRight className="w-4 h-4" />
+                {activeApplicationId === job._id ? 'Starting...' : 'Open + Extension Apply'} <ChevronRight className="w-4 h-4" />
               </button>
 
               <div className="mt-3 grid grid-cols-2 gap-2">

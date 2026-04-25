@@ -16,6 +16,10 @@ const syncJobs = async (req, res) => {
         
         // 2. Parse required skills from Job Descriptions utilizing our Python AI service
         for (const jobData of scrapedJobs) {
+            if (String(jobData.url || '').includes('w3schools.com')) {
+                continue;
+            }
+
             // Check if job exists by URL to avoid duplicates
             let existingJob = await Job.findOne({ url: jobData.url });
             if (existingJob) continue;
@@ -107,8 +111,10 @@ const getRecommendations = async (req, res) => {
         const apps = await Application.find({ userId: req.user.id })
             .populate('jobId')
             .sort({ atsScore: -1 });
+
+        const filtered = apps.filter((app) => !String(app.jobId?.url || '').includes('w3schools.com'));
             
-        res.json(apps);
+        res.json(filtered);
     } catch (e) {
         res.status(500).json({ error: "Cannot fetch recommendations" });
     }

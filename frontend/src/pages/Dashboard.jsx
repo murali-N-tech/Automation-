@@ -21,6 +21,9 @@ export default function Dashboard() {
     recentApplications: []
   });
   const [loading, setLoading] = useState(true);
+  const [extensionInstalled, setExtensionInstalled] = useState(
+    localStorage.getItem('extensionInstalled') === 'true'
+  );
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -40,6 +43,24 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
+      {!extensionInstalled && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-indigo-900">Install Smart Apply Chrome Extension</p>
+            <p className="text-xs text-indigo-700">Load the extension from the local `extension/` folder to enable safe in-browser autofill.</p>
+          </div>
+          <button
+            onClick={() => {
+              localStorage.setItem('extensionInstalled', 'true');
+              setExtensionInstalled(true);
+            }}
+            className="px-3 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          >
+            I Installed It
+          </button>
+        </div>
+      )}
+
       <header className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-extrabold text-neutral-900 tracking-tight">
@@ -101,14 +122,19 @@ export default function Dashboard() {
         </div>
 
         {/* Recent Matches Timeline */}
-        <div className="lg:col-span-2 border border-neutral-200 bg-white rounded-2xl p-6 shadow-sm min-h-[300px]">
+        <div className="lg:col-span-2 border border-neutral-200 bg-white rounded-2xl p-6 shadow-sm min-h-75">
            <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-bold text-neutral-900 flex items-center gap-2">
                  <Star className="w-5 h-5 text-amber-500" /> Recent ATS Matches
               </h2>
            </div>
            
-           {stats.recentApplications?.length > 0 ? (
+           {!stats.latestResume ? (
+             <div className="text-center py-10 text-neutral-500">
+               <p>Upload and confirm a resume to unlock AI matches.</p>
+               <Link to="/resume" className="inline-block mt-4 text-blue-600 hover:underline">Upload Resume &rarr;</Link>
+             </div>
+           ) : stats.recentApplications?.length > 0 ? (
              <div className="space-y-4">
                {stats.recentApplications.map(app => (
                  <div key={app._id} className="flex justify-between items-center border-b border-neutral-100 pb-4 last:border-0">

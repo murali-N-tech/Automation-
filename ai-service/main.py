@@ -19,6 +19,7 @@ def _allowed_origins():
         "http://localhost:5173",
         "http://localhost:5174",
         "http://localhost:5000",
+        "http://localhost:5001",
     ]
 
 
@@ -27,7 +28,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
