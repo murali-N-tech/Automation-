@@ -57,7 +57,20 @@ const applicationSchema = new mongoose.Schema({
 
   notes: String,
 
+  followUpDate: Date,
+
+  labels: [String],
+
   coverLetter: String,
+
+  timeline: [{
+    status: String,
+    changedAt: {
+      type: Date,
+      default: Date.now
+    },
+    note: String
+  }],
 
   automation: {
     platform: {
@@ -88,5 +101,28 @@ const applicationSchema = new mongoose.Schema({
 
 // Prevent duplicate applications
 applicationSchema.index({ userId: 1, jobId: 1 }, { unique: true });
+
+applicationSchema.pre('save', function trackTimeline() {
+  if (!Array.isArray(this.timeline)) {
+    this.timeline = [];
+  }
+
+  if (this.isNew) {
+    this.timeline.push({
+      status: this.status,
+      changedAt: this.createdAt || new Date(),
+      note: this.notes || ''
+    });
+    return;
+  }
+
+  if (this.isModified('status')) {
+    this.timeline.push({
+      status: this.status,
+      changedAt: new Date(),
+      note: this.notes || ''
+    });
+  }
+});
 
 module.exports = mongoose.model('Application', applicationSchema);

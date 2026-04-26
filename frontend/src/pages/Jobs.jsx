@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../services/api';
 import {
   Briefcase, Zap, Globe, Clock, ChevronRight,
   CircleCheckBig, CircleX, FileText, Edit3, ExternalLink,
-  RefreshCw, AlertTriangle,
+  RefreshCw, AlertTriangle, BrainCircuit,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -167,8 +168,19 @@ export default function Jobs() {
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-neutral-900">Job Recommendations</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-neutral-900">Job Recommendations</h1>
+          <p className="mt-1 text-sm text-neutral-500">
+            Scrape, score, and then move the best matches into deeper AI preparation.
+          </p>
+        </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            to="/ai-studio"
+            className="flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-medium text-cyan-800 shadow-sm transition hover:bg-cyan-100"
+          >
+            <BrainCircuit className="h-4 w-4" /> Open AI Studio
+          </Link>
           <button
             onClick={handleSyncJobs}
             disabled={syncing}
@@ -353,6 +365,14 @@ export default function Jobs() {
                 )}
 
                 {/* ── Primary CTA: Open + Autofill ── */}
+                <Link
+                  to={`/ai-studio?jobId=${app.jobId._id}&applicationId=${app._id}`}
+                  className="flex items-center justify-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-800 transition hover:bg-cyan-100"
+                >
+                  <BrainCircuit className="h-4 w-4" />
+                  Deep AI Analysis
+                </Link>
+
                 <button
                   onClick={() => handleApply(app)}
                   disabled={busy || !hasResume}

@@ -7,6 +7,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Resume from "./pages/Resume";
 import Jobs from "./pages/Jobs";
+import AIStudio from "./pages/AIStudio";
 import Layout from "./layouts/Layout";
 import { Toaster } from "react-hot-toast";
 import api from "./services/api";
@@ -63,6 +64,7 @@ function App() {
                 <Route index element={<Navigate to="/dashboard" replace />} />
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="jobs" element={<Jobs />} />
+                <Route path="ai-studio" element={<AIStudio />} />
               </Route>
             </Route>
           </Route>

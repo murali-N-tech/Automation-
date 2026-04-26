@@ -162,6 +162,26 @@ export default function Dashboard() {
            )}
         </div>
       </div>
+
+      <div className="rounded-[2rem] bg-slate-950 px-6 py-7 text-white shadow-[0_25px_70px_rgba(15,23,42,0.28)]">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="max-w-2xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">New Workspace</p>
+            <h2 className="mt-2 text-2xl font-black tracking-tight">AI Studio is now live.</h2>
+            <p className="mt-2 text-sm leading-7 text-slate-300">
+              Run deep job analysis, generate tailored cover letters, optimize resumes by target company style,
+              and map the skill gaps showing up across your matched roles.
+            </p>
+          </div>
+          <Link
+            to="/ai-studio"
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-cyan-400 px-5 py-3 text-sm font-bold text-slate-950 transition hover:bg-cyan-300"
+          >
+            <BrainCircuit className="h-4 w-4" />
+            Open AI Studio
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }

@@ -12,6 +12,8 @@ const authRoutes      = require('./routes/authRoutes');
 const resumeRoutes    = require('./routes/resumeRoutes');
 const jobRoutes       = require('./routes/jobRoutes');
 const applyRoutes     = require('./routes/applyRoutes');
+const aiRoutes        = require('./routes/aiRoutes');
+const skillRoutes     = require('./routes/skillRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 
 // ── Services ──────────────────────────────────────────────────────────────────
@@ -57,6 +59,8 @@ app.use('/api/auth',      authRoutes);
 app.use('/api/resumes',   resumeRoutes);
 app.use('/api/jobs',      jobRoutes);
 app.use('/api/apply',     applyRoutes);
+app.use('/api/ai',        aiRoutes);
+app.use('/api/skills',    skillRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
 // ── Config ────────────────────────────────────────────────────────────────────
