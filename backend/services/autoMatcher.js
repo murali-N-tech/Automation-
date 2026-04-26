@@ -189,7 +189,7 @@ class AutoMatcher {
                   resumeId: resume._id,
                   jobId: job._id,
                   atsScore: Math.round(finalScore),
-                  decision: isTopMatch ? 'Apply' : 'Review',
+                  decision: isTopMatch ? 'Apply' : 'Improve',
                   missingKeywords: missing_keywords || [],
                   status: isTopMatch ? 'Ready to Apply' : 'Saved',
                   coverLetter: generatedLetter

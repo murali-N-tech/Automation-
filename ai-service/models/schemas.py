@@ -10,6 +10,14 @@ class JobRequirementsRes(BaseModel):
     role_type: Optional[str] = None
 
 class ResumeParseRes(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    location: Optional[str] = None
+    linkedin: Optional[str] = None
+    github: Optional[str] = None
+    portfolio: Optional[str] = None
+    summary: Optional[str] = None
     skills: List[str]
     projects: List[dict]
     experience: List[dict]

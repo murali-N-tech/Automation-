@@ -2,9 +2,38 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/authMiddleware');
 const Resume = require('../models/Resume');
+const User = require('../models/User');
 const multer = require('multer');
 const axios = require('axios');
 const FormData = require('form-data');
+const fs = require('fs');
+const path = require('path');
+
+const RESUME_STORAGE_DIR = path.join(__dirname, '..', 'uploads', 'resumes');
+
+function ensureResumeDir() {
+    fs.mkdirSync(RESUME_STORAGE_DIR, { recursive: true });
+}
+
+function buildStoredResumePath(userId, originalname = 'resume.pdf') {
+    ensureResumeDir();
+    const ext = path.extname(originalname) || '.pdf';
+    const base = path.basename(originalname, ext).replace(/[^a-z0-9_-]/gi, '_').slice(0, 50) || 'resume';
+    const fileName = `${userId}_${Date.now()}_${base}${ext}`;
+    return path.join(RESUME_STORAGE_DIR, fileName);
+}
+
+function safeDeleteFile(filePath) {
+    if (!filePath) return;
+
+    try {
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+    } catch (err) {
+        console.warn('Failed to delete stored resume:', err.message);
+    }
+}
 
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -31,8 +60,13 @@ const uploadResume = (req, res, next) => {
 };
 
 router.post('/upload', requireAuth, uploadResume, async (req, res) => {
+    let storedResumePath = null;
+
     try {
         if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+        storedResumePath = buildStoredResumePath(req.user.id, req.file.originalname);
+        fs.writeFileSync(storedResumePath, req.file.buffer);
 
         // Forward to Python AI Microservice
         const form = new FormData();
@@ -50,16 +84,20 @@ router.post('/upload', requireAuth, uploadResume, async (req, res) => {
             userId: req.user.id,
             title: req.file.originalname,
             parsedData: parsedData,
-            rawFileUrl: "local_temp_mock"
+            rawFileUrl: storedResumePath
         });
 
         await newResume.save();
+        await User.findByIdAndUpdate(req.user.id, {
+            $addToSet: { resumes: newResume._id }
+        });
         res.json({ message: "Resume parsed and saved successfully", data: newResume });
     } catch (e) {
         const serviceStatus = e.response?.status;
         const serviceMessage = e.response?.data?.detail || e.response?.data?.error;
 
         console.error("Parse Error:", serviceMessage || e.message);
+        safeDeleteFile(storedResumePath);
 
         if (serviceStatus) {
             return res.status(serviceStatus).json({
@@ -99,6 +137,11 @@ router.delete('/:id', requireAuth, async (req, res) => {
         if (!deletedResume) {
             return res.status(404).json({ error: "Resume not found or unauthorized to delete." });
         }
+
+        safeDeleteFile(deletedResume.rawFileUrl);
+        await User.findByIdAndUpdate(req.user.id, {
+            $pull: { resumes: deletedResume._id }
+        });
 
         res.json({ message: "Resume deleted successfully" });
     } catch (e) {

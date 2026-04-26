@@ -17,9 +17,13 @@ const dashboardRoutes = require('./routes/dashboardRoutes');
 // ── Services ──────────────────────────────────────────────────────────────────
 const { fetchJobsFromJSearch } = require('./services/jsearchService');
 const autoMatcher              = require('./services/autoMatcher');
+const { jobApplyAutomationService, detectPlatform } = require('./services/jobApplyAutomation');
 
 // ── Models ────────────────────────────────────────────────────────────────────
 const Job = require('./models/Job');
+const User = require('./models/User');
+const Resume = require('./models/Resume');
+const Application = require('./models/Application');
 
 // ── App setup ─────────────────────────────────────────────────────────────────
 const app = express();
@@ -75,6 +79,38 @@ async function extractSkillsForJob(description = '') {
   }
 }
 
+async function persistCronAutomationOutcome(application, result) {
+  application.automation = application.automation || {};
+  application.automation.platform = result.platform || detectPlatform(result.currentUrl || '');
+  application.automation.attempts = Number(application.automation.attempts || 0) + 1;
+  application.automation.lastRunAt = new Date();
+  application.automation.lastOutcome = result.submitted
+    ? 'submitted'
+    : (result.requiresManualAction ? 'manual_required' : 'failed');
+  application.automation.lastError = result.success ? '' : (result.reason || '');
+  application.automation.lastUrl = result.currentUrl || '';
+  application.automation.screenshotPath = result.screenshotPath || '';
+  application.automation.requiresManualAction = Boolean(result.requiresManualAction);
+  application.notes = [
+    `Automation platform: ${application.automation.platform || 'other'}`,
+    result.reason || '',
+    result.uploadedResume ? 'Resume uploaded successfully.' : 'Resume upload not confirmed.',
+    result.actionsTaken?.length ? `Workflow steps: ${result.actionsTaken.join(' -> ')}.` : '',
+    result.validationErrors?.length ? `Validation: ${result.validationErrors.join(' | ')}.` : ''
+  ].filter(Boolean).join(' ');
+
+  if (result.submitted) {
+    application.status = 'Applied';
+    application.appliedAt = new Date();
+  } else if (result.requiresManualAction) {
+    application.status = 'Reviewing';
+  } else {
+    application.status = 'Failed';
+  }
+
+  await application.save();
+}
+
 // ── DB + Server ───────────────────────────────────────────────────────────────
 mongoose
   .connect(MONGO_URI)
@@ -117,8 +153,50 @@ mongoose
 
     // ── CRON 2: Rate-limit check every 30 minutes ─────────────────
     cron.schedule('*/30 * * * *', async () => {
-      // Future: enforce daily application limits per user
-      // For now, just a placeholder that logs cleanly
+      if (process.env.AUTO_APPLY_CRON_ENABLED !== 'true') {
+        return;
+      }
+
+      const perUserLimit = Math.max(1, Math.min(Number(process.env.AUTO_APPLY_BATCH_LIMIT) || 3, 10));
+
+      try {
+        const users = await User.find({}).lean();
+
+        for (const user of users) {
+          const latestResume = await Resume.findOne({ userId: user._id }).sort({ createdAt: -1 });
+          if (!latestResume?.rawFileUrl) {
+            continue;
+          }
+
+          const readyApps = await Application.find({
+            userId: user._id,
+            status: { $in: ['Ready to Apply', 'Reviewing'] },
+            decision: 'Apply'
+          })
+            .sort({ atsScore: -1, createdAt: -1 })
+            .limit(perUserLimit)
+            .populate('jobId')
+            .populate('resumeId');
+
+          for (const application of readyApps) {
+            const job = application.jobId;
+            if (!job?.url) continue;
+
+            const result = await jobApplyAutomationService.apply({
+              application,
+              user,
+              resume: application.resumeId || latestResume,
+              job,
+              finalSubmit: process.env.AUTO_APPLY_FINAL_SUBMIT !== 'false',
+              headless: process.env.AUTO_APPLY_HEADLESS !== 'false'
+            });
+
+            await persistCronAutomationOutcome(application, result);
+          }
+        }
+      } catch (err) {
+        console.error('❌ [CRON] Auto apply error:', err.message);
+      }
     });
 
     // ── Start server ──────────────────────────────────────────────

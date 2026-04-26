@@ -8,6 +8,7 @@ router.post('/sync', requireAuth, jobController.syncJobs);
 
 // Generate matches mapping jobs to recent resume
 router.post('/match', requireAuth, jobController.matchJobs);
+router.post('/full-auto', requireAuth, jobController.runFullAutomation);
 
 // Get recommended jobs for user based on decision engine
 router.get('/recommendations', requireAuth, jobController.getRecommendations);

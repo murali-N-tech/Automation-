@@ -2,6 +2,113 @@ const Application = require('../models/Application');
 const Job = require('../models/Job');
 const User = require('../models/User');
 const Resume = require('../models/Resume');
+const { jobApplyAutomationService, detectPlatform } = require('../services/jobApplyAutomation');
+
+async function resolveResume(userId, explicitResumeId) {
+    if (explicitResumeId) {
+        const explicitResume = await Resume.findOne({
+            _id: explicitResumeId,
+            userId
+        });
+
+        if (explicitResume) return explicitResume;
+    }
+
+    return Resume.findOne({ userId }).sort({ createdAt: -1 });
+}
+
+async function resolveApplicationForAutomation({ userId, applicationId, jobId, resumeId }) {
+    let application = null;
+
+    if (applicationId) {
+        application = await Application.findOne({
+            _id: applicationId,
+            userId
+        });
+    }
+
+    let job = null;
+    if (application?.jobId) {
+        job = await Job.findById(application.jobId);
+    } else if (jobId) {
+        job = await Job.findById(jobId);
+    }
+
+    if (!job) {
+        return { error: 'Job not found.' };
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+        return { error: 'User not found.' };
+    }
+
+    const resume = await resolveResume(userId, resumeId || application?.resumeId);
+    if (!resume) {
+        return { error: 'No uploaded resume found for this user.' };
+    }
+
+    if (!application) {
+        application = await Application.findOneAndUpdate(
+            { userId, jobId: job._id },
+            {
+                $setOnInsert: {
+                    userId,
+                    jobId: job._id,
+                    resumeId: resume._id,
+                    status: 'Ready to Apply',
+                    decision: 'Apply'
+                }
+            },
+            {
+                upsert: true,
+                new: true
+            }
+        );
+    } else if (!application.resumeId) {
+        application.resumeId = resume._id;
+        await application.save();
+    }
+
+    return { application, job, user, resume };
+}
+
+async function persistAutomationOutcome(application, result) {
+    application.automation = application.automation || {};
+    application.automation.platform = result.platform || detectPlatform(result.currentUrl || '');
+    application.automation.attempts = Number(application.automation.attempts || 0) + 1;
+    application.automation.lastRunAt = new Date();
+    application.automation.lastOutcome = result.submitted
+        ? 'submitted'
+        : (result.requiresManualAction ? 'manual_required' : 'failed');
+    application.automation.lastError = result.success ? '' : (result.reason || '');
+    application.automation.lastUrl = result.currentUrl || '';
+    application.automation.screenshotPath = result.screenshotPath || '';
+    application.automation.requiresManualAction = Boolean(result.requiresManualAction);
+
+    const noteParts = [
+        `Automation platform: ${application.automation.platform || 'other'}`,
+        result.reason || 'No portal response.',
+        result.uploadedResume ? 'Resume uploaded successfully.' : 'Resume upload not confirmed.',
+        result.filledFields?.length ? `Filled ${result.filledFields.length} common fields.` : 'No common fields were auto-filled.',
+        result.actionsTaken?.length ? `Workflow steps: ${result.actionsTaken.join(' -> ')}.` : '',
+        result.validationErrors?.length ? `Validation: ${result.validationErrors.join(' | ')}.` : ''
+    ];
+
+    application.notes = noteParts.filter(Boolean).join(' ');
+
+    if (result.submitted) {
+        application.status = 'Applied';
+        application.appliedAt = new Date();
+    } else if (result.requiresManualAction) {
+        application.status = 'Reviewing';
+    } else {
+        application.status = 'Failed';
+    }
+
+    await application.save();
+    return application;
+}
 
 const applyToJob = async (req, res) => {
     try {
@@ -41,18 +148,18 @@ const applyToJob = async (req, res) => {
         }
 
         application.status = "Reviewing";
-        application.notes = `Extension-assisted apply started on ${new Date().toLocaleString()}`;
+        application.notes = `Application prepared for automation/manual review on ${new Date().toLocaleString()}`;
         await application.save();
 
         return res.json({
             success: true,
-            message: 'Application marked for extension-assisted review.',
+            message: 'Application marked for automation/manual review.',
             applicationId: application._id,
             jobUrl: job.url,
             nextSteps: [
-                'Open the job URL and use the AI Placement Officer Chrome extension.',
-                'Review all autofilled values before final submit.',
-                "After submitting, click 'Mark Applied' in the app."
+                'Trigger POST /api/apply/auto to let the backend attempt the submission.',
+                'If the portal blocks automation, review the saved notes and screenshot path.',
+                "Use POST /api/apply/complete to mark the final outcome if you finish manually."
             ]
         });
 
@@ -94,12 +201,18 @@ const getApplyContext = async (req, res) => {
                 .lean();
 
         const profile = {
-            name: user.name || '',
-            email: user.email || '',
-            phone: '',
+            name: latestResume?.parsedData?.name || user.name || '',
+            email: latestResume?.parsedData?.email || user.email || '',
+            phone: latestResume?.parsedData?.phone || '',
+            location: latestResume?.parsedData?.location || '',
+            linkedin: latestResume?.parsedData?.linkedin || '',
+            github: latestResume?.parsedData?.github || '',
+            portfolio: latestResume?.parsedData?.portfolio || '',
+            summary: latestResume?.parsedData?.summary || '',
             skills: latestResume?.parsedData?.skills || [],
             projects: latestResume?.parsedData?.projects || [],
             experience: latestResume?.parsedData?.experience || [],
+            education: latestResume?.parsedData?.education || [],
         };
 
         // ✅ UPDATED RESPONSE WITH COVER LETTER
@@ -123,7 +236,8 @@ const getApplyContext = async (req, res) => {
                 location: application.jobId?.location || '',
                 url: application.jobId?.url || '',
                 description: application.jobId?.description || '',
-            }
+            },
+            automation: application.automation || null
         });
 
     } catch (err) {
@@ -208,8 +322,153 @@ const updateCoverLetter = async (req, res) => {
     }
 };
 
+const autoApplyToJob = async (req, res) => {
+    try {
+        const {
+            applicationId,
+            jobId,
+            resumeId,
+            finalSubmit = true,
+            headless = process.env.AUTO_APPLY_HEADLESS !== 'false'
+        } = req.body || {};
+
+        const resolved = await resolveApplicationForAutomation({
+            userId: req.user.id,
+            applicationId,
+            jobId,
+            resumeId
+        });
+
+        if (resolved.error) {
+            return res.status(404).json({ error: resolved.error });
+        }
+
+        const { application, job, user, resume } = resolved;
+
+        const result = await jobApplyAutomationService.apply({
+            application,
+            user,
+            resume,
+            job,
+            finalSubmit,
+            headless
+        });
+
+        await persistAutomationOutcome(application, result);
+
+        return res.json({
+            success: result.success,
+            applicationId: application._id,
+            status: application.status,
+            automation: application.automation,
+            result
+        });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({
+            error: 'Error during automated application attempt.'
+        });
+    }
+};
+
+const autoApplyBatch = async (req, res) => {
+    try {
+        const {
+            limit = 5,
+            resumeId,
+            finalSubmit = true,
+            headless = process.env.AUTO_APPLY_HEADLESS !== 'false'
+        } = req.body || {};
+
+        const applications = await Application.find({
+            userId: req.user.id,
+            status: { $in: ['Ready to Apply', 'Reviewing'] },
+            decision: 'Apply'
+        })
+            .sort({ atsScore: -1, createdAt: -1 })
+            .limit(Math.max(1, Math.min(Number(limit) || 5, 20)))
+            .populate('jobId')
+            .populate('resumeId');
+
+        if (!applications.length) {
+            return res.json({
+                success: true,
+                processed: 0,
+                results: []
+            });
+        }
+
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+
+        const latestResume = await resolveResume(req.user.id, resumeId);
+        if (!latestResume) {
+            return res.status(400).json({ error: 'No uploaded resume found for this user.' });
+        }
+
+        const results = [];
+
+        for (const application of applications) {
+            const job = application.jobId;
+            if (!job?.url) {
+                application.status = 'Failed';
+                application.notes = 'Skipped by automation: job URL missing.';
+                await application.save();
+                results.push({
+                    applicationId: application._id,
+                    success: false,
+                    status: application.status,
+                    reason: application.notes
+                });
+                continue;
+            }
+
+            const resume = application.resumeId || latestResume;
+            const result = await jobApplyAutomationService.apply({
+                application,
+                user,
+                resume,
+                job,
+                finalSubmit,
+                headless
+            });
+
+            await persistAutomationOutcome(application, result);
+
+            results.push({
+                applicationId: application._id,
+                jobId: job._id,
+                jobTitle: job.title,
+                success: result.success,
+                status: application.status,
+                platform: result.platform,
+                reason: result.reason,
+                screenshotPath: result.screenshotPath || ''
+            });
+        }
+
+        return res.json({
+            success: true,
+            processed: results.length,
+            applied: results.filter((item) => item.status === 'Applied').length,
+            manualReview: results.filter((item) => item.status === 'Reviewing').length,
+            failed: results.filter((item) => item.status === 'Failed').length,
+            results
+        });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({
+            error: 'Error while running batch auto-apply.'
+        });
+    }
+};
+
 module.exports = {
     applyToJob,
+    autoApplyToJob,
+    autoApplyBatch,
     completeApplication,
     getApplyContext,
     updateCoverLetter

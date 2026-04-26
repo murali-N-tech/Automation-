@@ -38,7 +38,22 @@ async def parse_resume(file: UploadFile = File(...)):
         if client.api_key and client.api_key != "your_nvidia_api_key_here":
             schema_instruction = """
             You are an expert HR AI logic system. Extract requested fields from the resume text.
-            Return pure JSON: { "skills": [], "projects": [], "experience": [], "education": [] }
+            Return pure JSON with this exact shape:
+            {
+              "name": "",
+              "email": "",
+              "phone": "",
+              "location": "",
+              "linkedin": "",
+              "github": "",
+              "portfolio": "",
+              "summary": "",
+              "skills": [],
+              "projects": [],
+              "experience": [],
+              "education": []
+            }
+            Use null or empty strings when a field is missing. Never invent values.
             """
             
             try:
@@ -63,7 +78,28 @@ async def parse_resume(file: UploadFile = File(...)):
         # Search the text for actual matches, ignore case
         extracted_skills = [skill for skill in common_tech_stack if re.search(r'\b' + re.escape(skill) + r'\b', extracted_text, re.IGNORECASE)]
 
+        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', extracted_text)
+        phone_match = re.search(r'(\+?\d[\d\-\s\(\)]{8,}\d)', extracted_text)
+        linkedin_match = re.search(r'(https?://(?:www\.)?linkedin\.com/[^\s]+)', extracted_text, re.IGNORECASE)
+        github_match = re.search(r'(https?://(?:www\.)?github\.com/[^\s]+)', extracted_text, re.IGNORECASE)
+        portfolio_match = re.search(
+            r'(https?://(?!www\.linkedin\.com)(?!github\.com)[^\s]+\.[^\s]+)',
+            extracted_text,
+            re.IGNORECASE
+        )
+
+        lines = [line.strip() for line in extracted_text.splitlines() if line.strip()]
+        probable_name = lines[0] if lines else None
+
         return ResumeParseRes(
+            name=probable_name,
+            email=email_match.group(0) if email_match else None,
+            phone=phone_match.group(0) if phone_match else None,
+            location=None,
+            linkedin=linkedin_match.group(1) if linkedin_match else None,
+            github=github_match.group(1) if github_match else None,
+            portfolio=portfolio_match.group(1) if portfolio_match else None,
+            summary=None,
             skills=list(set(extracted_skills)),
             projects=[], # Fallback limits structure, but prevents hallucination
             experience=[],

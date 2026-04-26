@@ -59,6 +59,26 @@ const applicationSchema = new mongoose.Schema({
 
   coverLetter: String,
 
+  automation: {
+    platform: {
+      type: String,
+      default: 'other'
+    },
+    attempts: {
+      type: Number,
+      default: 0
+    },
+    lastRunAt: Date,
+    lastOutcome: String,
+    lastError: String,
+    lastUrl: String,
+    screenshotPath: String,
+    requiresManualAction: {
+      type: Boolean,
+      default: false
+    }
+  },
+
   createdAt: {
     type: Date,
     default: Date.now,

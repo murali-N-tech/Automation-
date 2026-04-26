@@ -16,6 +16,14 @@ const resumeSchema = new mongoose.Schema({
   // since this data is always accessed natively with the Resume document 
   // and fits within 16MB document size limits comfortably.
   parsedData: {
+    name: String,
+    email: String,
+    phone: String,
+    location: String,
+    linkedin: String,
+    github: String,
+    portfolio: String,
+    summary: String,
     skills: [String],
     projects: [{
       name: String,

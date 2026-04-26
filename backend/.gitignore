@@ -27,6 +27,9 @@ Thumbs.db
 # Optional: coverage
 coverage/
 
+# Local runtime artifacts
+uploads/
+
 # Optional: lock files (keep ONE)
 # package-lock.json
 # yarn.lock
