@@ -3,6 +3,7 @@ const Application = require('../models/Application');
 const Resume = require('../models/Resume');
 const User = require('../models/User');
 const jobScraper = require('../services/jobScraper');
+const { fetchJobsFromJSearch } = require('../services/jsearchService');
 const llmService = require('../services/llmService');
 const { jobApplyAutomationService, detectPlatform } = require('../services/jobApplyAutomation');
 const axios = require('axios');
@@ -15,9 +16,25 @@ async function syncJobsInternal({ keyword, location }) {
         ? await jobScraper.fetchAllFreeJobs(searchTerm)
         : await jobScraper.scrapeGenericJobBoard(urlToScrape, searchTerm);
 
+    const jsearchQuery = [searchTerm, location].filter(Boolean).join(' ').trim() || 'software engineer remote';
+    const jsearchJobs = await fetchJobsFromJSearch(jsearchQuery);
+
+    // Merge and dedupe by URL so repeated source records do not flood the same jobs.
+    const mergedJobs = [...scrapedJobs, ...jsearchJobs].filter((job) => String(job?.url || '').trim());
+    const uniqueByUrl = [];
+    const seenUrls = new Set();
+    for (const job of mergedJobs) {
+        const normalizedUrl = String(job.url).trim();
+        if (!normalizedUrl || seenUrls.has(normalizedUrl)) {
+            continue;
+        }
+        seenUrls.add(normalizedUrl);
+        uniqueByUrl.push({ ...job, url: normalizedUrl });
+    }
+
     const savedJobs = [];
 
-    for (const jobData of scrapedJobs) {
+    for (const jobData of uniqueByUrl) {
         if (String(jobData.url || '').includes('w3schools.com')) {
             continue;
         }
@@ -49,28 +66,48 @@ async function syncJobsInternal({ keyword, location }) {
 
 async function matchJobsInternal(userId) {
     const resume = await Resume.findOne({ userId }).sort({ createdAt: -1 });
-    if (!resume || !resume.parsedData || !resume.parsedData.skills) {
+    if (!resume || !resume.parsedData || !Array.isArray(resume.parsedData.skills) || resume.parsedData.skills.length === 0) {
         const error = new Error('Resume missing or not correctly parsed.');
         error.statusCode = 400;
         throw error;
     }
 
-    const userSkills = resume.parsedData.skills;
+    const userSkills = resume.parsedData.skills
+        .map((skill) => String(skill || '').trim())
+        .filter(Boolean);
+
+    if (userSkills.length === 0) {
+        const error = new Error('Resume has no valid skills for matching.');
+        error.statusCode = 400;
+        throw error;
+    }
     const appliedJobs = await Application.find({ userId }).select('jobId');
     const appliedJobIds = appliedJobs.map((app) => app.jobId);
-    const unseenJobs = await Job.find({ _id: { $nin: appliedJobIds } });
+    const unseenJobs = await Job.find({ _id: { $nin: appliedJobIds } })
+        .sort({ postedAt: -1, _id: -1 });
 
     const newMatches = [];
 
     for (const job of unseenJobs) {
         try {
+            if (!Array.isArray(job.requiredSkills) || job.requiredSkills.length === 0) {
+                continue;
+            }
+
             const matchRes = await axios.post('http://localhost:8000/matcher/score-job', {
                 resume_skills: userSkills,
                 job_skills: job.requiredSkills || []
             });
 
             const { ats_score, missing_keywords, recommendation } = matchRes.data;
-            const isTopMatch = Number(ats_score) >= 75;
+            const normalizedScore = Number(ats_score) || 0;
+
+            // Store only positive matches from resume-driven scoring.
+            if (normalizedScore <= 0) {
+                continue;
+            }
+
+            const isTopMatch = normalizedScore >= 75;
 
             let generatedLetter = '';
             if (isTopMatch) {
@@ -85,7 +122,7 @@ async function matchJobsInternal(userId) {
                 userId,
                 resumeId: resume._id,
                 jobId: job._id,
-                atsScore: ats_score,
+                atsScore: normalizedScore,
                 decision: recommendation,
                 missingKeywords: missing_keywords,
                 status: isTopMatch ? 'Ready to Apply' : 'Saved',
@@ -164,9 +201,13 @@ const matchJobs = async (req, res) => {
 const getRecommendations = async (req, res) => {
     try {
         // Find applications representing matches for the specified User
-        const apps = await Application.find({ userId: req.user.id })
+        const apps = await Application.find({
+            userId: req.user.id,
+            atsScore: { $gt: 0 }
+        })
             .populate('jobId')
-            .sort({ atsScore: -1 });
+            // Show freshest opportunities first, then best score.
+            .sort({ createdAt: -1, atsScore: -1 });
 
         const filtered = apps.filter((app) => !String(app.jobId?.url || '').includes('w3schools.com'));
             

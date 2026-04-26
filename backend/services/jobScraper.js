@@ -27,10 +27,15 @@ class JobScraper {
   async fetchAllFreeJobs(searchKeyword = 'software engineer') {
     console.log(`🚀 Starting Job Scraper for: ${searchKeyword}`);
 
-    // Run only active scrapers (Remotive removed)
+    const requestedPage = Number.parseInt(process.env.THE_MUSE_PAGE || '', 10);
+    const startPage = Number.isInteger(requestedPage) && requestedPage > 0
+      ? requestedPage
+      : Math.floor(Math.random() * 5) + 1;
+
+    const musePages = [startPage, startPage + 1, startPage + 2];
     const results = await Promise.allSettled([
-      this.fetchFromTheMuse(searchKeyword),
-      this.fetchFromArbeitnow()
+      ...musePages.map((page) => this.fetchFromTheMuse(searchKeyword, page)),
+      this.fetchFromArbeitnow(searchKeyword)
     ]);
 
     let allJobs = [];
@@ -54,14 +59,14 @@ class JobScraper {
   }
 
   // --- FREE API 1: The Muse ---
-  async fetchFromTheMuse(searchKeyword) {
+  async fetchFromTheMuse(searchKeyword, page = 1) {
     try {
       const { data } = await axios.get(
         'https://www.themuse.com/api/public/jobs',
         {
           params: {
-            category: 'Software Engineer',
-            page: 1
+            category: searchKeyword || 'Software Engineer',
+            page
           },
           timeout: 10000
         }
@@ -89,11 +94,12 @@ class JobScraper {
   }
 
   // --- FREE API 2: Arbeitnow ---
-  async fetchFromArbeitnow() {
+  async fetchFromArbeitnow(searchKeyword) {
     try {
       const { data } = await axios.get(
         'https://www.arbeitnow.com/api/job-board-api',
         {
+          params: searchKeyword ? { search: searchKeyword } : undefined,
           timeout: 10000
         }
       );
