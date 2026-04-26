@@ -1,92 +1,88 @@
+const statusEl = document.getElementById('status-text');
+
+function setStatus(msg, type = '') {
+  statusEl.textContent = msg;
+  statusEl.className = type;
+}
+
 // ================= LOAD DATA BUTTON =================
 document.getElementById('load-btn').addEventListener('click', async () => {
   const token = document.getElementById('jwt-token').value.trim();
   const appId = document.getElementById('app-id').value.trim();
 
   if (!token || !appId) {
-    alert("Please enter both your JWT Token and the Application ID.");
+    setStatus('⚠ Enter both Token and Application ID.', 'error');
     return;
   }
 
-  document.getElementById('status-text').innerText =
-    'Status: Fetching from server...';
+  const loadBtn = document.getElementById('load-btn');
+  loadBtn.disabled = true;
+  loadBtn.textContent = 'Loading...';
+  setStatus('Fetching from server...');
 
   try {
-    // 🔗 Fetch application context from backend
     const response = await fetch(
       `http://localhost:5000/api/apply/context/${appId}`,
-      {
-        headers: { Authorization: `Bearer ${token}` }
-      }
+      { headers: { Authorization: `Bearer ${token}` } }
     );
 
     if (!response.ok) {
-      throw new Error(
-        "Failed to fetch application data. Check your Token/AppID."
-      );
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `Server error ${response.status}`);
     }
 
     const dbData = await response.json();
 
-    // 🔄 Map backend data → extension format
     const contextData = {
       profile: {
-        name: dbData.profile?.name || "No Name Found",
-        email: dbData.profile?.email || "",
-        phone: dbData.profile?.phone || "",
-        linkedin: dbData.profile?.linkedin || ""
+        name:     dbData.profile?.name    || '',
+        email:    dbData.profile?.email   || '',
+        phone:    dbData.profile?.phone   || '',
+        linkedin: dbData.profile?.linkedin || '',
+        skills:   dbData.profile?.skills  || [],
       },
-      coverLetter: dbData.coverLetter || ""
+      coverLetter: dbData.coverLetter || '',
+      job: {
+        title:   dbData.job?.title   || '',
+        company: dbData.job?.company || '',
+        url:     dbData.job?.url     || '',
+      },
     };
 
-    // 💾 Save to Chrome storage
     await chrome.storage.local.set({ applyData: contextData });
-
-    document.getElementById('status-text').innerText =
-      'Status: ✅ Data Loaded & Ready to Apply!';
-
-    console.log("✅ Stored applyData:", contextData);
+    setStatus(`✅ Loaded: ${contextData.profile.name || 'Profile'} → ${contextData.job.title || 'Job'}`, 'success');
 
   } catch (err) {
-    console.error(err);
-    document.getElementById('status-text').innerText =
-      'Status: ❌ Error loading data.';
-    alert(err.message);
+    setStatus(`❌ ${err.message}`, 'error');
+  } finally {
+    loadBtn.disabled = false;
+    loadBtn.textContent = '① Load Job Data';
   }
 });
 
 
 // ================= AUTOFILL BUTTON =================
 document.getElementById('autofill-btn').addEventListener('click', async () => {
-  let [tab] = await chrome.tabs.query({
-    active: true,
-    currentWindow: true
-  });
+  const stored = await chrome.storage.local.get(['applyData']);
+  if (!stored.applyData) {
+    setStatus('⚠ Load job data first (Step 1).', 'error');
+    return;
+  }
 
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) {
-    alert("No active tab found.");
+    setStatus('❌ No active tab found.', 'error');
     return;
   }
 
   try {
-    // 🔥 Inject script into ALL frames (important for Greenhouse / Workday)
+    // Inject into all frames (needed for Greenhouse, Workday iframes)
     await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: true },
-      function: triggerAutofill
+      func: () => window.postMessage({ type: 'START_AUTOFILL' }, '*'),
     });
-
-    document.getElementById('status-text').innerText =
-      'Status: ⚡ Autofill triggered!';
-
+    setStatus('⚡ Autofill triggered! Check the page.', 'success');
   } catch (err) {
-    console.error(err);
-    alert("Failed to trigger autofill.");
+    setStatus(`❌ Autofill failed: ${err.message}`, 'error');
   }
 });
-
-
-// ================= FUNCTION INJECTED INTO PAGE =================
-function triggerAutofill() {
-  // 🚀 Send message to content script
-  window.postMessage({ type: "START_AUTOFILL" }, "*");
-}

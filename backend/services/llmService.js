@@ -1,41 +1,76 @@
+/**
+ * Hire-Me AI: LLM Service (V2)
+ * Uses FastAPI AI backend for cover letter generation
+ */
+
 const axios = require('axios');
 
+const AI_SERVICE = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+
 class LLMService {
+
   /**
-   * Generates a targeted cover letter using Google Gemma 3 via NVIDIA API.
+   * Generate cover letter via Python AI service
+   * @param {string} jobTitle
+   * @param {string} companyName
+   * @param {Array<string>} userSkills
+   * @returns {Promise<string>}
    */
-  async generateCoverLetter(jobTitle, companyName, skills) {
-    const invokeUrl = "https://integrate.api.nvidia.com/v1/chat/completions";
-    // Ensure you add NVIDIA_API_KEY to your backend/.env file!
-    const apiKey = process.env.NVIDIA_API_KEY; 
-
-    // 1. Create a dynamic prompt using the job and user details
-    const topSkills = skills.slice(0, 5).join(', '); // Grab up to 5 skills
-    const prompt = `Write a professional, concise cover letter for the ${jobTitle} position at ${companyName}. Highlight my foundational experience in these skills: ${topSkills}. Keep the letter under 200 words and do not include placeholder brackets like [Your Address].`;
-
-    const payload = {
-      "model": "google/gemma-3n-e2b-it",
-      "messages": [{"role": "user", "content": prompt}],
-      "max_tokens": 512,
-      "temperature": 0.5, // Slightly higher for a bit more creative writing
-      "top_p": 0.70,
-      "stream": false // Set to false so we get the whole response at once
-    };
-
+  async generateCoverLetter(jobTitle, companyName, userSkills = []) {
     try {
-      const response = await axios.post(invokeUrl, payload, {
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Accept": "application/json"
+      console.log(`✨ Generating AI cover letter for ${companyName}...`);
+
+      const response = await axios.post(
+        `${AI_SERVICE}/matcher/generate-cover-letter`,
+        {
+          job_title: jobTitle || 'Software Engineer',
+          company_name: companyName || 'the company',
+          resume_skills: Array.isArray(userSkills) ? userSkills : []
+        },
+        {
+          timeout: 15000
         }
-      });
-      
-      // 2. Extract and return the generated text from the LLM
-      return response.data.choices[0].message.content.trim();
+      );
+
+      const letter = response.data?.cover_letter;
+
+      // Basic validation
+      if (letter && letter.length > 50) {
+        return letter;
+      }
+
+      console.warn('⚠ Empty/invalid AI response, using fallback.');
+      return this._fallback(jobTitle, companyName, userSkills);
+
     } catch (error) {
-      console.error("NVIDIA API Error:", error?.response?.data || error.message);
-      return "Failed to generate cover letter.";
+      console.error(
+        '❌ AI service error:',
+        error?.response?.data || error.message
+      );
+
+      return this._fallback(jobTitle, companyName, userSkills);
     }
+  }
+
+  /**
+   * Fallback cover letter (always safe)
+   */
+  _fallback(jobTitle, companyName, skills = []) {
+    const topSkills = skills.slice(0, 3);
+    const skillsStr = topSkills.length
+      ? topSkills.join(', ')
+      : 'software engineering and problem-solving';
+
+    return `Dear Hiring Manager,
+
+I am writing to express my strong interest in the ${jobTitle} position at ${companyName}. With experience in ${skillsStr}, I am confident in my ability to contribute effectively to your team.
+
+I am eager to apply my skills and continue learning in a challenging environment.
+
+Thank you for your time and consideration.
+
+Sincerely,
+Applicant`;
   }
 }
 

@@ -1,119 +1,219 @@
-const User = require('../models/User');
-const Job = require('../models/Job');
+/**
+ * Hire-Me AI: AutoMatcher V2 (FINAL)
+ * Hybrid AI + Heuristic Scoring Engine
+ */
+
+const User        = require('../models/User');
+const Job         = require('../models/Job');
 const Application = require('../models/Application');
-const Resume = require('../models/Resume');
-const axios = require('axios');
+const Resume      = require('../models/Resume');
+const axios       = require('axios');
+const llmService  = require('./llmService');
 
-// ✅ NEW: LLM Service (Gemma / OpenAI / etc.)
-const llmService = require('./llmService');
+const AI_SERVICE  = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 
+// ================= SKILL EXTRACTION =================
+async function ensureSkills(job) {
+  if (job.requiredSkills && job.requiredSkills.length > 0) return job;
+
+  try {
+    const res = await axios.post(
+      `${AI_SERVICE}/matcher/extract-job-skills`,
+      { description: job.description || '' },
+      { timeout: 10000 }
+    );
+
+    const skills = res.data?.required_skills || [];
+
+    if (skills.length > 0) {
+      job.requiredSkills = skills;
+      await Job.findByIdAndUpdate(job._id, { requiredSkills: skills });
+    }
+  } catch (err) {
+    console.warn(`⚠ Skill extraction failed for "${job.title}":`, err.message);
+  }
+
+  return job;
+}
+
+// ================= V2 SCORING ENGINE =================
+const calculateSalaryScore = (salary) => {
+  if (!salary) return 50;
+
+  if (salary >= 1500000) return 100;
+  if (salary >= 1000000) return 80;
+  if (salary >= 600000)  return 60;
+  return 40;
+};
+
+const calculateCompanyScore = (company) => {
+  if (!company) return 50;
+
+  const compName = typeof company === 'string'
+    ? company.toLowerCase()
+    : (company.name || '').toLowerCase();
+
+  const topTier = [
+    'google', 'amazon', 'microsoft', 'meta',
+    'apple', 'netflix', 'adobe', 'atlassian', 'uber'
+  ];
+
+  if (topTier.some(t => compName.includes(t))) return 100;
+  if (compName.length > 0) return 70;
+
+  return 50;
+};
+
+const calculateRecencyScore = (dateString) => {
+  if (!dateString) return 50;
+
+  const jobDate = new Date(dateString);
+  const today = new Date();
+
+  const diffDays = Math.ceil(Math.abs(today - jobDate) / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 1) return 100;
+  if (diffDays <= 3) return 90;
+  if (diffDays <= 7) return 70;
+  if (diffDays <= 14) return 50;
+  if (diffDays <= 30) return 30;
+
+  return 10;
+};
+
+// ================= MAIN CLASS =================
 class AutoMatcher {
+
   /**
-   * Autonomously matches all unseen jobs for all users.
-   * Runs via cron job.
+   * Nightly AI Matching Engine (Cron Job)
    */
   async runNightlyMatching() {
-    console.log('🤖 Starting automated nightly AI matching for all users...');
+    console.log('🤖 Starting V2 AI MatchMaker...');
 
     try {
-      // 1. Get all users
-      const users = await User.find({});
+      const users = await User.find({}).lean();
 
       for (const user of users) {
 
-        // 2. Get latest resume
+        // ===== STEP 0: GET RESUME =====
         const resume = await Resume.findOne({ userId: user._id })
           .sort({ createdAt: -1 });
 
-        if (!resume || !resume.parsedData || !resume.parsedData.skills) {
+        if (!resume?.parsedData?.skills?.length) {
+          console.log(`⚠ ${user.email}: No resume skills.`);
           continue;
         }
 
         const userSkills = resume.parsedData.skills;
 
-        // 3. Get already applied jobs
-        const appliedJobs = await Application.find({ userId: user._id })
-          .select('jobId');
+        // ===== STEP 1: FILTER APPLIED JOBS =====
+        const existingApps = await Application
+          .find({ userId: user._id })
+          .select('jobId')
+          .lean();
 
-        const appliedJobIds = appliedJobs.map(app => app.jobId);
+        const appliedJobIds = existingApps.map(a => a.jobId.toString());
 
-        // 4. Get unseen jobs
         const unseenJobs = await Job.find({
           _id: { $nin: appliedJobIds }
         });
 
-        let newMatchesCount = 0;
+        let newMatches = 0;
 
-        // 5. Process each job
         for (const job of unseenJobs) {
           try {
 
-            // ===== STEP 1: AI SCORE (FastAPI) =====
-            const matchRes = await axios.post(
-              'http://localhost:8000/matcher/score-job',
-              {
-                resume_skills: userSkills,
-                job_skills: job.requiredSkills || []
-              }
-            );
+            // ===== STEP 2: ENSURE SKILLS =====
+            await ensureSkills(job);
 
-            const { ats_score, missing_keywords, recommendation } = matchRes.data;
-
-            // ===== STEP 2: FILTER LOW QUALITY =====
-            if (ats_score >= 40) {
-
-              let generatedLetter = "";
-              const isTopMatch = ats_score >= 75;
-
-              // ===== STEP 3: LLM COVER LETTER =====
-              if (isTopMatch) {
-                try {
-                  generatedLetter = await llmService.generateCoverLetter(
-                    job.title || 'Software Engineer',
-                    job.company?.name || 'the company',
-                    userSkills
-                  );
-                } catch (llmErr) {
-                  console.error(
-                    `❌ LLM cover letter failed for job ${job._id}:`,
-                    llmErr.message
-                  );
-                }
-              }
-
-              // ===== STEP 4: SAVE APPLICATION =====
-              const application = new Application({
-                userId: user._id,
-                resumeId: resume._id,
-                jobId: job._id,
-                atsScore: ats_score,
-                decision: recommendation,
-                missingKeywords: missing_keywords,
-                status: isTopMatch ? 'Ready to Apply' : 'Saved',
-                coverLetter: generatedLetter // ⭐ Real LLM output
-              });
-
-              await application.save();
-              newMatchesCount++;
+            if (!job.requiredSkills || job.requiredSkills.length === 0) {
+              console.log(`⏭ Skipping "${job.title}" — no skills.`);
+              continue;
             }
 
-          } catch (err) {
-            console.error(
-              `❌ AI scoring error for job ${job._id}:`,
-              err.message
+            // ===== STEP 3: AI ATS SCORE =====
+            const matchRes = await axios.post(
+              `${AI_SERVICE}/matcher/score-job`,
+              {
+                resume_skills: userSkills,
+                job_skills: job.requiredSkills
+              },
+              { timeout: 10000 }
             );
+
+            const { ats_score, missing_keywords } = matchRes.data;
+
+            // ===== STEP 4: COMPOSITE SCORE =====
+            const aiScore       = Number(ats_score) || 0;
+            const salaryScore   = calculateSalaryScore(job.salary);
+            const companyScore  = calculateCompanyScore(job.company);
+            const recencyScore  = calculateRecencyScore(job.postedAt || job.createdAt);
+
+            const finalScore =
+              (0.5 * aiScore) +
+              (0.2 * salaryScore) +
+              (0.2 * companyScore) +
+              (0.1 * recencyScore);
+
+            // ===== STEP 5: FILTER LOW QUALITY =====
+            if (finalScore < 60) continue;
+
+            const isTopMatch = finalScore >= 75;
+
+            // ===== STEP 6: GENERATE COVER LETTER =====
+            let generatedLetter = '';
+
+            if (isTopMatch) {
+              try {
+                const companyName = typeof job.company === 'string'
+                  ? job.company
+                  : (job.company?.name || 'the company');
+
+                generatedLetter = await llmService.generateCoverLetter(
+                  job.title || 'Software Engineer',
+                  companyName,
+                  userSkills
+                );
+
+              } catch (llmErr) {
+                console.error(`❌ LLM error for "${job.title}":`, llmErr.message);
+              }
+            }
+
+            // ===== STEP 7: UPSERT APPLICATION =====
+            await Application.findOneAndUpdate(
+              { userId: user._id, jobId: job._id },
+              {
+                $setOnInsert: {
+                  userId: user._id,
+                  resumeId: resume._id,
+                  jobId: job._id,
+                  atsScore: Math.round(finalScore),
+                  decision: isTopMatch ? 'Apply' : 'Review',
+                  missingKeywords: missing_keywords || [],
+                  status: isTopMatch ? 'Ready to Apply' : 'Saved',
+                  coverLetter: generatedLetter
+                }
+              },
+              { upsert: true }
+            );
+
+            newMatches++;
+
+          } catch (err) {
+            if (err.code !== 11000) {
+              console.error(`❌ Job "${job.title}" failed:`, err.message);
+            }
           }
         }
 
-        console.log(
-          `✅ Processed user ${user.email}: ${newMatchesCount} new matches generated.`
-        );
+        console.log(`✅ ${user.email}: ${newMatches} matches added.`);
       }
 
-      console.log('🎉 Automated matching cycle complete.');
+      console.log('🎉 V2 Matching Completed.');
 
-    } catch (error) {
-      console.error('❌ Failed to run autonomous matching engine:', error);
+    } catch (err) {
+      console.error('❌ Matching engine failed:', err.message);
     }
   }
 }

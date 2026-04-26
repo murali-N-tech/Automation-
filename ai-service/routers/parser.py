@@ -10,9 +10,11 @@ from models.schemas import ResumeParseRes
 
 load_dotenv()
 
+# ================= NVIDIA LLM CLIENT =================
+# Pointing the AsyncOpenAI client to NVIDIA's API
 client = AsyncOpenAI(
-    api_key=os.getenv("GROQ_API_KEY", ""),
-    base_url=os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+    api_key=os.getenv("NVIDIA_API_KEY", ""),
+    base_url=os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 )
 
 router = APIRouter(prefix="/parser", tags=["Parser"])
@@ -32,7 +34,8 @@ async def parse_resume(file: UploadFile = File(...)):
             for page in pdf_document:
                 extracted_text += page.get_text("text") or ""
         
-        if client.api_key and client.api_key != "your_groq_api_key_here":
+        # Check if the NVIDIA API key is configured
+        if client.api_key and client.api_key != "your_nvidia_api_key_here":
             schema_instruction = """
             You are an expert HR AI logic system. Extract requested fields from the resume text.
             Return pure JSON: { "skills": [], "projects": [], "experience": [], "education": [] }
@@ -40,7 +43,7 @@ async def parse_resume(file: UploadFile = File(...)):
             
             try:
                 completion = await client.chat.completions.create(
-                    model="llama3-70b-8192", # Defaulting to Groq's fastest reliable model
+                    model="meta/llama-3.1-70b-instruct", # Top-tier model for accurate JSON extraction
                     messages=[
                         {"role": "system", "content": schema_instruction},
                         {"role": "user", "content": f"Resume Text:\n{extracted_text}"}

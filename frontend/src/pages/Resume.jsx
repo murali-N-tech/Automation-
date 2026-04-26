@@ -1,13 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { UploadCloud, File, FileText, CheckCircle2 } from 'lucide-react';
+import {
+  UploadCloud,
+  Trash2,
+  Edit2,
+  FileText,
+  CheckCircle,
+  BarChart3
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function Resume() {
   const [resumes, setResumes] = useState([]);
-  const [file, setFile] = useState(null);
-  const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editTitle, setEditTitle] = useState("");
+
+  useEffect(() => {
+    fetchResumes();
+  }, []);
 
   const fetchResumes = async () => {
     try {
@@ -20,89 +32,178 @@ export default function Resume() {
     }
   };
 
-  useEffect(() => {
-    fetchResumes();
-  }, []);
+  // ================= UPLOAD =================
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-  const handleUpload = async (e) => {
-    e.preventDefault();
-    if (!file) return toast.error('Please select a file');
-    
     const formData = new FormData();
     formData.append('resume', file);
+    formData.append('title', file.name);
 
     setUploading(true);
+    const toastId = toast.loading('🤖 AI is extracting resume data...');
+
     try {
       await api.post('/resumes/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: { 'Content-Type': 'multipart/form-data' }
       });
-      toast.success('Resume uploaded and parsed successfully');
-      setFile(null);
+
+      toast.success('Resume uploaded & parsed successfully!', { id: toastId });
       fetchResumes();
+
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Upload failed');
+      toast.error('Upload failed', { id: toastId });
     } finally {
       setUploading(false);
     }
   };
 
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-neutral-900">Resume Management</h1>
+  // ================= DELETE =================
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this resume?')) return;
 
-      <div className="bg-white p-6 rounded-xl border border-neutral-200">
-        <h2 className="text-lg font-bold mb-4">Upload New Resume</h2>
-        <form onSubmit={handleUpload} className="flex items-center gap-4">
-          <div className="flex-1">
-            <input
-              type="file"
-              accept=".pdf"
-              onChange={(e) => setFile(e.target.files[0])}
-              className="block w-full text-sm text-neutral-500
-                file:mr-4 file:py-2 file:px-4
-                file:rounded-full file:border-0
-                file:text-sm file:font-semibold
-                file:bg-blue-50 file:text-blue-700
-                hover:file:bg-blue-100"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={uploading || !file}
-            className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
-          >
-            {uploading ? 'Processing...' : <><UploadCloud className="w-5 h-5" /> Upload</>}
-          </button>
-        </form>
+    try {
+      await api.delete(`/resumes/${id}`);
+      toast.success('Resume deleted');
+      setResumes(resumes.filter(r => r._id !== id));
+    } catch {
+      toast.error('Delete failed');
+    }
+  };
+
+  // ================= EDIT =================
+  const handleSaveEdit = async (id) => {
+    try {
+      await api.put(`/resumes/${id}`, { title: editTitle });
+
+      toast.success('Title updated');
+      setResumes(resumes.map(r =>
+        r._id === id ? { ...r, title: editTitle } : r
+      ));
+
+      setEditingId(null);
+    } catch {
+      toast.error('Update failed');
+    }
+  };
+
+  // ================= ATS SCORE =================
+  const calculateBaseAtsScore = (parsedData) => {
+    if (!parsedData) return 0;
+
+    let score = 20;
+    if (parsedData.skills?.length > 5) score += 30;
+    if (parsedData.experience?.length > 0) score += 30;
+    if (parsedData.education?.length > 0) score += 20;
+
+    return score;
+  };
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-8">
+
+      {/* HEADER */}
+      <div>
+        <h1 className="text-3xl font-bold text-neutral-900">Resume Management</h1>
+        <p className="text-neutral-500 mt-2">
+          Upload your resume to let AI match you with jobs.
+        </p>
       </div>
 
-      <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
-        <div className="p-6 border-b border-neutral-200">
-          <h2 className="text-lg font-bold">Parsed Resumes</h2>
-        </div>
+      {/* UPLOAD */}
+      <div className="bg-white p-8 rounded-2xl border border-neutral-200 border-dashed text-center">
+        <UploadCloud className="w-12 h-12 text-blue-500 mx-auto mb-4" />
+
+        <h3 className="text-lg font-semibold text-neutral-800">
+          Upload New Resume
+        </h3>
+
+        <p className="text-sm text-neutral-500 mb-6">
+          PDF files up to 5MB supported
+        </p>
+
+        <label className={`cursor-pointer inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
+          {uploading ? 'Processing AI...' : 'Browse Files'}
+
+          <input
+            type="file"
+            className="hidden"
+            accept=".pdf"
+            onChange={handleFileUpload}
+            disabled={uploading}
+          />
+        </label>
+      </div>
+
+      {/* LIST */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-bold flex items-center gap-2">
+          <FileText className="w-5 h-5" /> Your Resumes
+        </h2>
+
         {loading ? (
-          <div className="p-6 text-center text-neutral-500">Loading...</div>
+          <p>Loading...</p>
         ) : resumes.length === 0 ? (
-          <div className="p-6 text-center text-neutral-500">No resumes uploaded yet.</div>
+          <div className="p-6 text-center text-neutral-500 border rounded-xl">
+            No resumes uploaded yet.
+          </div>
         ) : (
-          <div className="divide-y divide-neutral-200">
-            {resumes.map(resume => (
-              <div key={resume._id} className="p-6 flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-3 mb-2">
-                    <FileText className="w-6 h-6 text-blue-600" />
-                    <h3 className="font-bold text-neutral-900">{resume.title || 'Untitled Resume'}</h3>
-                    <span className="flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full">
-                      <CheckCircle2 className="w-3 h-3" /> Parsed
-                    </span>
+          <div className="grid gap-4">
+            {resumes.map(resume => {
+              const score = calculateBaseAtsScore(resume.parsedData);
+              const isEditing = editingId === resume._id;
+
+              return (
+                <div key={resume._id} className="flex flex-col md:flex-row items-center justify-between p-5 border rounded-xl shadow-sm hover:shadow-md transition gap-4">
+
+                  {/* INFO */}
+                  <div className="flex-1 w-full">
+                    <div className="flex items-center gap-3 mb-2">
+                      <FileText className="w-7 h-7 text-blue-500" />
+
+                      {isEditing ? (
+                        <>
+                          <input
+                            value={editTitle}
+                            onChange={(e) => setEditTitle(e.target.value)}
+                            className="border px-2 py-1 rounded"
+                          />
+                          <button onClick={() => handleSaveEdit(resume._id)}>Save</button>
+                        </>
+                      ) : (
+                        <h3 className="font-bold">{resume.title}</h3>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-neutral-500">
+                      Added {new Date(resume.createdAt).toLocaleDateString()}
+                    </p>
                   </div>
-                  <p className="text-sm text-neutral-500">
-                    Uploaded on {new Date(resume.createdAt).toLocaleDateString()}
-                  </p>
+
+                  {/* SCORE */}
+                  <div className="flex items-center gap-3">
+                    <BarChart3 className={score >= 70 ? 'text-green-500' : 'text-yellow-500'} />
+                    <span className="font-bold">{score}/100</span>
+                  </div>
+
+                  {/* ACTIONS */}
+                  <div className="flex gap-2">
+                    <button onClick={() => {
+                      setEditingId(resume._id);
+                      setEditTitle(resume.title);
+                    }}>
+                      <Edit2 />
+                    </button>
+
+                    <button onClick={() => handleDelete(resume._id)}>
+                      <Trash2 />
+                    </button>
+                  </div>
+
                 </div>
-                {/* Expandable parsed data could go here */}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
