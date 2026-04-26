@@ -5,17 +5,15 @@
   "description": "Autofills job applications using your AI-analyzed resume.",
   "permissions": ["activeTab", "storage", "scripting"],
   "host_permissions": [
-    "*://*.greenhouse.io/*",
-    "*://*.lever.co/*",
-    "*://*.workday.com/*",
-    "http://localhost:5000/*"
+    "<all_urls>"
   ],
   "action": {
     "default_popup": "popup.html"
   },
   "content_scripts": [
     {
-      "matches": ["*://*.greenhouse.io/*", "*://*.lever.co/*"],
+      "matches": ["<all_urls>"],
+      "all_frames": true,
       "js": ["content.js"]
     }
   ]

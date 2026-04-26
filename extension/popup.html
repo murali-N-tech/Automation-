@@ -1,17 +1,25 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    body { width: 300px; padding: 15px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-    button { width: 100%; padding: 10px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
-    button:hover { background: #1d4ed8; }
-    p { font-size: 13px; color: #64748b; text-align: center; }
-  </style>
-</head>
-<body>
-  <h3 style="margin-top:0;">Hire-Me AI Agent</h3>
-  <p>Ready to autofill this application?</p>
-  <button id="autofill-btn">🚀 Magic Apply</button>
-  <script src="popup.js"></script>
-</body>
-</html>
+<div style="width: 300px; padding: 15px; font-family: sans-serif;">
+  <h3>🤖 AI Placement Officer</h3>
+  
+  <div style="margin-bottom: 10px;">
+    <label style="font-size: 12px; font-weight: bold;">JWT Token:</label>
+    <input type="password" id="jwt-token" placeholder="Paste your bearer token" style="width: 100%; padding: 5px;" />
+  </div>
+
+  <div style="margin-bottom: 10px;">
+    <label style="font-size: 12px; font-weight: bold;">Application/Job ID:</label>
+    <input type="text" id="app-id" placeholder="Paste the Job _id" style="width: 100%; padding: 5px;" />
+  </div>
+
+  <button id="load-btn" style="width: 100%; padding: 8px; margin-bottom: 10px; background: #9333ea; color: white; border: none; cursor: pointer;">
+    1. Load Job Data
+  </button>
+  
+  <p id="status-text" style="font-size: 12px; color: #555; text-align: center;">Status: No Data Loaded</p>
+
+  <hr style="margin: 15px 0;">
+
+  <button id="autofill-btn" style="width: 100%; padding: 10px; background: #2563eb; color: white; border: none; cursor: pointer; font-weight: bold;">
+    2. Save & Autofill Current Tab
+  </button>
+</div>

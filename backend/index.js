@@ -13,9 +13,11 @@ const jobRoutes = require('./routes/jobRoutes');
 const applyRoutes = require('./routes/applyRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 
-// ================= SERVICES & MODELS =================
-const jobScraper = require('./services/jobScraper');
-const autoMatcher = require('./services/autoMatcher'); // ✅ NEW
+// ================= SERVICES =================
+const { fetchJobsFromJSearch } = require('./services/jsearchService'); // ✅ NEW
+const autoMatcher = require('./services/autoMatcher');
+
+// ================= MODELS =================
 const Job = require('./models/Job');
 
 const app = express();
@@ -50,7 +52,7 @@ app.use(cookieParser());
 
 // ================= HEALTH CHECK =================
 app.get('/api/health', (req, res) =>
-  res.json({ status: 'ok', service: 'Node.js Backend' })
+  res.json({ status: 'ok', service: 'Node.js Backend v2' })
 );
 
 // ================= ROUTES =================
@@ -72,16 +74,17 @@ mongoose
   .then(() => {
     console.log('✅ Connected to MongoDB');
 
-    // ================= CRON JOB =================
-    // Runs every day at 2:00 AM
-    cron.schedule('0 2 * * *', async () => {
-      console.log('🌙 Running nightly automation pipeline...');
+    // =====================================================
+    // 🔥 CRON 1: AI JOB FETCH PIPELINE (EVERY 6 HOURS)
+    // =====================================================
+    cron.schedule('0 */6 * * *', async () => {
+      console.log('🔄 Running v2 AI Job Fetch Pipeline...');
 
       try {
-        // ================= STEP 1: FETCH JOBS =================
-        const newJobs = await jobScraper.fetchAllFreeJobs('Software Engineer');
+        // 1️⃣ Fetch Jobs (JSearch API)
+        const newJobs = await fetchJobsFromJSearch('Software Engineer Remote');
 
-        // ================= STEP 2: SAVE JOBS =================
+        // 2️⃣ Save / Update Jobs
         for (const jobData of newJobs) {
           await Job.findOneAndUpdate(
             { url: jobData.url },
@@ -90,16 +93,57 @@ mongoose
           );
         }
 
-        console.log(`✅ Job sync complete. Saved ${newJobs.length} jobs.`);
+        console.log(`✅ Saved ${newJobs.length} jobs to DB.`);
 
-        // ================= STEP 3: AUTO MATCHING =================
-        console.log('🤖 Running AI job matching engine...');
+        // 3️⃣ AI Matching + Scoring Engine
+        console.log('🤖 Running AI Matching & Scoring Engine...');
+
+        /**
+         * ⚡ IMPORTANT (inside autoMatcher)
+         * Final Score =
+         * 0.5 * AI Match +
+         * 0.2 * Salary +
+         * 0.2 * Company Quality +
+         * 0.1 * Recency
+         */
         await autoMatcher.runNightlyMatching();
 
-        console.log('✅ Matching process completed.');
+        console.log('✅ Matching & Scoring Completed.');
 
       } catch (error) {
-        console.error('❌ Error during automated background tasks:', error);
+        console.error('❌ Pipeline Error:', error);
+      }
+    });
+
+    // =====================================================
+    // 🚦 CRON 2: RATE-LIMITED APPLY SCHEDULER (EVERY 30 MIN)
+    // =====================================================
+    cron.schedule('*/30 * * * *', async () => {
+      console.log('🚦 Checking Application Queue limits...');
+
+      try {
+        /**
+         * 🚀 FUTURE IMPLEMENTATION:
+         * - Count today's applications per user
+         * - Limit: 10/day
+         * - Pick top scored jobs from ApplicationQueue
+         * - Move:
+         *   pending → queued_for_today
+         */
+
+        // Example pseudo-logic:
+        // const todayCount = await ApplicationQueue.countDocuments({
+        //   userId,
+        //   status: 'applied',
+        //   appliedAt: { $gte: startOfToday }
+        // });
+
+        // if (todayCount < 10) {
+        //   move top priority jobs
+        // }
+
+      } catch (error) {
+        console.error('❌ Scheduler Error:', error);
       }
     });
 

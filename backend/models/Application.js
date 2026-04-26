@@ -1,7 +1,5 @@
 const mongoose = require('mongoose');
 
-// We use database referencing for Applications rather than embedding them inside  
-// the User document to avoid the MongoDB 16MB document limit and unbounded array sizes.
 const applicationSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -9,48 +7,66 @@ const applicationSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+
   resumeId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Resume',
     required: true
   },
+
   jobId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Job',
     required: true,
     index: true
   },
+
+  // Application Lifecycle Status
   status: {
     type: String,
-    enum: ['Saved', 'Ready to Apply', 'Reviewing', 'Applied', 'Rejected', 'Interviewing', 'Offer', 'Failed'],
+    enum: [
+      'Saved',
+      'Ready to Apply',
+      'Reviewing',
+      'Applied',
+      'Rejected',
+      'Interviewing',
+      'Offer',
+      'Failed'
+    ],
     default: 'Saved'
   },
+
+  // ATS Matching Score (0–100)
   atsScore: {
-    type: Number, // Percentage 0-100 indicating match per Decision Engine
+    type: Number,
     min: 0,
     max: 100
   },
+
+  // Decision Engine Output
   decision: {
     type: String,
     enum: ['Apply', 'Skip', 'Improve', 'Pending'],
     default: 'Pending'
   },
+
   missingKeywords: [String],
-  appliedAt: {
-    type: Date
-  },
-  notes: {
-    type: String
-  },
+
+  appliedAt: Date,
+
+  notes: String,
+
+  coverLetter: String,
+
   createdAt: {
     type: Date,
     default: Date.now,
     index: true
-  },
-  coverLetter: { type: String }
+  }
 });
 
-// A user should typically apply to the same job mostly once
+// Prevent duplicate applications
 applicationSchema.index({ userId: 1, jobId: 1 }, { unique: true });
 
 module.exports = mongoose.model('Application', applicationSchema);
