@@ -1,7 +1,9 @@
-import React, { createContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import api from '../services/api';
 
 export const AuthContext = createContext();
+
+export const useAuth = () => useContext(AuthContext);
 
 const isTokenValid = (token) => {
   if (!token) return false;

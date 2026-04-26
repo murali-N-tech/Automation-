@@ -7,10 +7,11 @@ const Job = require('../models/Job');
 const Resume = require('../models/Resume');
 
 const AI_SERVICE = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+const AI_SERVICE_TIMEOUT_MS = Number(process.env.AI_SERVICE_TIMEOUT_MS || 15000);
 
 const aiClient = axios.create({
   baseURL: AI_SERVICE,
-  timeout: 30000
+  timeout: AI_SERVICE_TIMEOUT_MS
 });
 
 function isObjectId(value) {

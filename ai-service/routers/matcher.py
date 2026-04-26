@@ -1,8 +1,10 @@
 import json
+import hashlib
 import os
 import re
+import time
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter
 from dotenv import load_dotenv
@@ -33,10 +35,16 @@ load_dotenv()
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
 NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
 NVIDIA_MODEL = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct")
+NVIDIA_REQUEST_TIMEOUT_SECONDS = float(os.getenv("NVIDIA_REQUEST_TIMEOUT_SECONDS", "12"))
+LLM_CACHE_TTL_SECONDS = int(os.getenv("LLM_CACHE_TTL_SECONDS", "180"))
+LLM_CACHE_MAX_ITEMS = int(os.getenv("LLM_CACHE_MAX_ITEMS", "128"))
+MAX_PROMPT_JOB_DESCRIPTION_CHARS = int(os.getenv("MAX_PROMPT_JOB_DESCRIPTION_CHARS", "6000"))
+MAX_PROMPT_RESUME_JSON_CHARS = int(os.getenv("MAX_PROMPT_RESUME_JSON_CHARS", "5000"))
 
 client = OpenAI(api_key=NVIDIA_API_KEY, base_url=NVIDIA_BASE_URL) if NVIDIA_API_KEY else None
 llm_disabled_reason = None
 llm_warning_logged = False
+llm_response_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
 KNOWN_SKILLS = [
     "Python",
@@ -178,7 +186,55 @@ def handle_llm_error(err: Exception, context: str) -> None:
         disable_llm("The configured NVIDIA account does not have available quota.")
         return
 
+    if "timeout" in lowered or "timed out" in lowered:
+        disable_llm(f"LLM request timed out after {NVIDIA_REQUEST_TIMEOUT_SECONDS}s.")
+        return
+
     print(f"NVIDIA LLM {context} failed. Using fallback path. Reason: {error_text}")
+
+
+def trim_prompt_text(text: str, max_chars: int) -> str:
+    value = str(text or "")
+    if len(value) <= max_chars:
+        return value
+    return value[:max_chars] + "\n...[truncated for latency]"
+
+
+def resume_prompt_json(resume_data: ResumeData) -> str:
+    compact_json = resume_data.model_dump_json(exclude_none=True)
+    return trim_prompt_text(compact_json, MAX_PROMPT_RESUME_JSON_CHARS)
+
+
+def build_llm_cache_key(system_prompt: str, user_prompt: str) -> str:
+    payload = f"{NVIDIA_MODEL}::{system_prompt}::{user_prompt}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def get_cached_llm_response(cache_key: str) -> Optional[Dict[str, Any]]:
+    if LLM_CACHE_TTL_SECONDS <= 0:
+        return None
+
+    cached = llm_response_cache.get(cache_key)
+    if not cached:
+        return None
+
+    cached_at, cached_value = cached
+    if time.time() - cached_at > LLM_CACHE_TTL_SECONDS:
+        llm_response_cache.pop(cache_key, None)
+        return None
+
+    return cached_value
+
+
+def set_cached_llm_response(cache_key: str, value: Dict[str, Any]) -> None:
+    if LLM_CACHE_TTL_SECONDS <= 0:
+        return
+
+    llm_response_cache[cache_key] = (time.time(), value)
+
+    if len(llm_response_cache) > LLM_CACHE_MAX_ITEMS:
+        oldest_key = min(llm_response_cache.items(), key=lambda item: item[1][0])[0]
+        llm_response_cache.pop(oldest_key, None)
 
 
 def canonicalize_skill(skill: str) -> str:
@@ -397,6 +453,11 @@ def try_llm_json(system_prompt: str, user_prompt: str) -> Optional[Dict[str, Any
     if not llm_is_available():
         return None
 
+    cache_key = build_llm_cache_key(system_prompt, user_prompt)
+    cached_response = get_cached_llm_response(cache_key)
+    if cached_response is not None:
+        return cached_response
+
     try:
         response = client.chat.completions.create(
             model=NVIDIA_MODEL,
@@ -407,9 +468,14 @@ def try_llm_json(system_prompt: str, user_prompt: str) -> Optional[Dict[str, Any
             response_format={"type": "json_object"},
             temperature=0.3,
             max_tokens=900,
+            timeout=NVIDIA_REQUEST_TIMEOUT_SECONDS,
         )
         content = response.choices[0].message.content or "{}"
-        return json.loads(content)
+        parsed = json.loads(content)
+        if isinstance(parsed, dict):
+            set_cached_llm_response(cache_key, parsed)
+            return parsed
+        return None
     except Exception as err:
         handle_llm_error(err, "JSON generation")
         return None
@@ -565,6 +631,8 @@ def score_job(req: MatchReq):
 @router.post("/job-analysis", response_model=JobAnalysisRes)
 def analyze_job(req: JobAnalysisReq):
     fallback = score_resume_against_job(req.resume_data, req.job_description)
+    prompt_resume_json = resume_prompt_json(req.resume_data)
+    prompt_job_description = trim_prompt_text(req.job_description, MAX_PROMPT_JOB_DESCRIPTION_CHARS)
 
     system_prompt = (
         "You are an expert recruiting analyst. Compare a candidate resume against a job description "
@@ -587,12 +655,12 @@ Candidate resume summary:
 {summarize_resume(req.resume_data)}
 
 Structured resume data:
-{req.resume_data.model_dump_json(indent=2)}
+{prompt_resume_json}
 
 Job title: {req.job_title or ""}
 Company name: {req.company_name or ""}
 Job description:
-{req.job_description}
+{prompt_job_description}
 """
     llm_result = try_llm_json(system_prompt, user_prompt)
 
@@ -621,6 +689,8 @@ def optimize_resume(req: ResumeOptimizationReq):
     analysis = score_resume_against_job(req.resume_data, req.job_description)
     variant = (req.target_variant or "general").strip() or "general"
     optimized_text = build_optimized_resume_text(req.resume_data, req.job_description, variant, analysis)
+    prompt_resume_json = resume_prompt_json(req.resume_data)
+    prompt_job_description = trim_prompt_text(req.job_description, MAX_PROMPT_JOB_DESCRIPTION_CHARS)
 
     llm_result = try_llm_json(
         "You are an ATS resume optimization assistant. Return JSON only.",
@@ -636,10 +706,10 @@ Return JSON with:
 
 Target variant: {variant}
 Structured resume data:
-{req.resume_data.model_dump_json(indent=2)}
+{prompt_resume_json}
 
 Job description:
-{req.job_description}
+{prompt_job_description}
 """,
     )
 
@@ -700,6 +770,7 @@ Strict Requirements:
                 ],
                 max_tokens=350,
                 temperature=0.7,
+                timeout=NVIDIA_REQUEST_TIMEOUT_SECONDS,
             )
             generated_letter = (response.choices[0].message.content or "").strip()
             if generated_letter:
@@ -726,6 +797,8 @@ def generate_tailored_cover_letter(req: TailoredCoverLetterReq):
         req.company_name,
         req.job_title,
     )
+    prompt_resume_json = resume_prompt_json(req.resume_data)
+    prompt_job_description = trim_prompt_text(req.job_description, MAX_PROMPT_JOB_DESCRIPTION_CHARS)
 
     llm_result = try_llm_json(
         "You are an expert career coach. Return JSON only.",
@@ -736,12 +809,12 @@ Return JSON with:
 - cover_letter
 
 Structured resume data:
-{req.resume_data.model_dump_json(indent=2)}
+{prompt_resume_json}
 
 Job title: {req.job_title or ""}
 Company name: {req.company_name or ""}
 Job description:
-{req.job_description}
+{prompt_job_description}
 """,
     )
 

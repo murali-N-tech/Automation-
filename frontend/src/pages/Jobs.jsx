@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Briefcase, Zap, Globe, Clock, ChevronRight,
   CircleCheckBig, CircleX, FileText, Edit3, ExternalLink,
-  RefreshCw, AlertTriangle, BrainCircuit,
+  RefreshCw, AlertTriangle, BrainCircuit, MapPin, Search
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers (Upgraded for Dark Mode) ──────────────────────────────────────────
 function getCompanyName(company) {
   if (!company) return 'Unknown Company';
   if (typeof company === 'string') return company;
@@ -17,36 +18,47 @@ function getCompanyName(company) {
 }
 
 function scoreColor(score) {
-  if (score >= 80) return 'bg-emerald-100 text-emerald-800';
-  if (score >= 60) return 'bg-blue-100 text-blue-800';
-  if (score >= 40) return 'bg-amber-100 text-amber-800';
-  return 'bg-red-100 text-red-800';
+  if (score >= 80) return 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+  if (score >= 60) return 'bg-blue-500/10 text-blue-400 border border-blue-500/20';
+  if (score >= 40) return 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
+  return 'bg-rose-500/10 text-rose-400 border border-rose-500/20';
 }
 
 function statusColor(status) {
   switch (status) {
-    case 'Ready to Apply': return 'bg-purple-100 text-purple-800 border border-purple-200';
-    case 'Applied':        return 'bg-emerald-100 text-emerald-700';
-    case 'Reviewing':      return 'bg-blue-100 text-blue-700';
-    case 'Failed':         return 'bg-rose-100 text-rose-700';
-    default:               return 'bg-neutral-100 text-neutral-600';
+    case 'Ready to Apply': return 'bg-purple-500/10 text-purple-400 border border-purple-500/20';
+    case 'Applied':        return 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+    case 'Reviewing':      return 'bg-blue-500/10 text-blue-400 border border-blue-500/20';
+    case 'Failed':         return 'bg-rose-500/10 text-rose-400 border border-rose-500/20';
+    default:               return 'bg-zinc-800 text-zinc-400 border border-zinc-700';
   }
 }
 
+// ── Framer Motion Variants ────────────────────────────────────────────────────
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { staggerChildren: 0.1 } }
+};
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function Jobs() {
-  const [jobs,        setJobs]        = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [syncing,     setSyncing]     = useState(false);
-  const [matching,    setMatching]    = useState(false);
-  const [hasResume,   setHasResume]   = useState(false);
-  const [busyId,      setBusyId]      = useState(null);   // applicationId being acted on
+  const [jobs,          setJobs]        = useState([]);
+  const [loading,       setLoading]     = useState(true);
+  const [syncing,       setSyncing]     = useState(false);
+  const [matching,      setMatching]    = useState(false);
+  const [hasResume,     setHasResume]   = useState(false);
+  const [busyId,        setBusyId]      = useState(null); 
 
   // Cover-letter state
-  const [expandedId,  setExpandedId]  = useState(null);
-  const [editingId,   setEditingId]   = useState(null);
-  const [editText,    setEditText]    = useState('');
-  const [savingLetter, setSavingLetter] = useState(false);
+  const [expandedId,    setExpandedId]  = useState(null);
+  const [editingId,     setEditingId]   = useState(null);
+  const [editText,      setEditText]    = useState('');
+  const [savingLetter,  setSavingLetter] = useState(false);
 
   // ── Data fetching ───────────────────────────────────────────────────────────
   const fetchJobs = useCallback(async () => {
@@ -98,33 +110,22 @@ export default function Jobs() {
     }
   };
 
-  /**
-   * ✅ FIX: proper automation flow
-   * 1. Call /apply/start to mark the application as Reviewing and get context
-   * 2. Open the job URL in a new tab
-   * 3. Instruct user to click autofill in the extension
-   */
   const handleApply = async (app) => {
     if (!app.jobId?.url) { toast.error('No job URL available'); return; }
     if (!hasResume)       { toast.error('Upload a resume first'); return; }
 
     setBusyId(app._id);
     try {
-      // Mark the application as "Reviewing" and confirm the record exists
       await api.post('/apply/start', {
         applicationId: app._id,
         jobId:         app.jobId._id,
       });
 
-      // Open the actual job posting
       window.open(app.jobId.url, '_blank', 'noopener,noreferrer');
-
       toast.success(
         `Job page opened! In the Chrome extension:\n1. Paste your token & App ID: ${app._id}\n2. Click Load → Autofill`,
         { duration: 8000, icon: '🧩' }
       );
-
-      // Refresh to show "Reviewing" status
       await fetchJobs();
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to start application');
@@ -164,27 +165,25 @@ export default function Jobs() {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
-
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
+      
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Job Recommendations</h1>
-          <p className="mt-1 text-sm text-neutral-500">
-            Scrape, score, and then move the best matches into deeper AI preparation.
-          </p>
+          <h1 className="text-3xl font-bold text-white tracking-tight">Job Recommendations</h1>
+          <p className="mt-2 text-zinc-400">Scrape, score, and push top matches into the AI execution pipeline.</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap">
           <Link
             to="/ai-studio"
-            className="flex items-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-medium text-cyan-800 shadow-sm transition hover:bg-cyan-100"
+            className="flex items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-300 shadow-sm transition hover:bg-indigo-500/20 hover:border-indigo-500/50"
           >
             <BrainCircuit className="h-4 w-4" /> Open AI Studio
           </Link>
           <button
             onClick={handleSyncJobs}
             disabled={syncing}
-            className="flex items-center gap-2 px-4 py-2 bg-white text-neutral-700 border border-neutral-200 rounded-lg hover:bg-neutral-50 shadow-sm disabled:opacity-50 text-sm font-medium"
+            className="flex items-center gap-2 px-4 py-2 bg-zinc-900 text-zinc-300 border border-zinc-700 rounded-lg hover:bg-zinc-800 hover:text-white transition shadow-sm disabled:opacity-50 text-sm font-medium"
           >
             {syncing
               ? <><RefreshCw className="w-4 h-4 animate-spin" /> Syncing…</>
@@ -195,7 +194,7 @@ export default function Jobs() {
             onClick={handleMatchJobs}
             disabled={matching || !hasResume}
             title={!hasResume ? 'Upload a resume first' : ''}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm disabled:opacity-50 text-sm font-medium"
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 transition shadow-sm shadow-indigo-500/20 disabled:opacity-50 text-sm font-medium"
           >
             {matching
               ? <><RefreshCw className="w-4 h-4 animate-spin" /> Matching…</>
@@ -205,31 +204,50 @@ export default function Jobs() {
         </div>
       </div>
 
-      {/* Resume warning */}
-      {!hasResume && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900 text-sm">
-          <AlertTriangle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-          <p>Upload and parse a resume first to unlock AI matching and apply actions.</p>
+      {/* Warnings & Alerts */}
+      <div className="space-y-3">
+        {!hasResume && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-amber-200 text-sm">
+            <AlertTriangle className="w-5 h-5 mt-0.5 flex-shrink-0 text-amber-400" />
+            <p>System Alert: Upload and parse a resume first to unlock AI matching and automation protocols.</p>
+          </motion.div>
+        )}
+        <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-4 text-blue-200 text-sm flex items-start gap-3">
+          <Zap className="w-5 h-5 mt-0.5 flex-shrink-0 text-blue-400" />
+          <p>
+            <strong>Execution Protocol:</strong> Click "Open + Autofill" to initialize the job page. 
+            Open the <strong>Hire-Me AI Chrome extension</strong>, paste your token & the Application ID, click Load → Autofill.
+          </p>
         </div>
-      )}
-
-      {/* Extension reminder */}
-      <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-blue-800 text-sm">
-        <strong>How to apply:</strong> Click "Open + Autofill" → it opens the job page.
-        Then open the <strong>Hire-Me AI Chrome extension</strong>, paste your <em>token</em> and the <em>Application ID</em> shown in the button, click <em>Load</em> then <em>Autofill</em>.
       </div>
 
-      {/* Job Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+      {/* Job Cards Grid */}
+      <motion.div 
+        variants={containerVariants}
+        initial="hidden"
+        animate="show"
+        className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"
+      >
         {loading ? (
-          <div className="col-span-full flex justify-center py-16 text-neutral-400">
-            <RefreshCw className="w-6 h-6 animate-spin mr-2" /> Loading…
-          </div>
+          // Professional Skeleton Loaders
+          [1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} className="bg-zinc-900/50 rounded-xl border border-zinc-800 p-6 animate-pulse flex flex-col gap-4">
+              <div className="flex justify-between">
+                <div className="space-y-2 flex-1">
+                  <div className="h-4 bg-zinc-800 rounded w-3/4"></div>
+                  <div className="h-3 bg-zinc-800 rounded w-1/2"></div>
+                </div>
+                <div className="w-16 h-6 bg-zinc-800 rounded-lg ml-4"></div>
+              </div>
+              <div className="h-16 bg-zinc-800/50 rounded-lg w-full mt-2"></div>
+              <div className="h-10 bg-zinc-800 rounded-lg w-full mt-auto"></div>
+            </div>
+          ))
         ) : jobs.length === 0 ? (
-          <div className="col-span-full text-center py-16 bg-white rounded-xl border border-neutral-200 text-neutral-500">
-            <Briefcase className="w-10 h-10 mx-auto mb-3 text-neutral-300" />
-            <p className="font-medium">No matched jobs yet.</p>
-            <p className="text-sm mt-1">Click "Scrape Jobs" then "Run AI MatchMaker".</p>
+          <div className="col-span-full flex flex-col items-center justify-center py-20 bg-zinc-900/30 rounded-2xl border border-zinc-800/50 border-dashed text-zinc-500">
+            <Search className="w-12 h-12 text-zinc-700 mb-4" />
+            <p className="text-lg font-medium text-zinc-300">No active matches found</p>
+            <p className="text-sm mt-1">Initiate "Scrape Jobs" and run the AI MatchMaker to populate this sector.</p>
           </div>
         ) : (
           jobs.map(app => {
@@ -237,28 +255,33 @@ export default function Jobs() {
             const busy = busyId === app._id;
 
             return (
-              <div
+              <motion.div
+                variants={cardVariants}
                 key={app._id}
-                className="bg-white p-5 rounded-xl border border-neutral-200 shadow-sm hover:shadow-md transition flex flex-col gap-3"
+                className="bg-zinc-900/80 p-6 rounded-xl border border-zinc-800 hover:border-zinc-700 shadow-xl shadow-black/20 transition-all flex flex-col gap-4 group relative overflow-hidden"
               >
+                {/* Subtle gradient hover effect */}
+                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
+
                 {/* Title + Score */}
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <h2 className="font-bold text-base text-neutral-900 leading-tight truncate">
+                <div className="flex items-start justify-between gap-3 relative z-10">
+                  <div className="min-w-0 flex-1">
+                    <h2 className="font-bold text-lg text-zinc-100 leading-tight truncate" title={app.jobId.title}>
                       {app.jobId.title}
                     </h2>
-                    <p className="text-sm text-neutral-500 truncate">
+                    <p className="text-sm text-zinc-400 truncate mt-1 flex items-center gap-1.5">
+                      <Briefcase className="w-3.5 h-3.5" />
                       {getCompanyName(app.jobId.company)}
                     </p>
                   </div>
-                  <span className={`flex-shrink-0 text-xs font-bold px-2 py-1 rounded-lg ${scoreColor(app.atsScore)}`}>
+                  <span className={`flex-shrink-0 text-xs font-bold px-2.5 py-1 rounded-md ${scoreColor(app.atsScore)}`}>
                     {Math.round(app.atsScore)}% Match
                   </span>
                 </div>
 
                 {/* Status + Link */}
-                <div className="flex items-center justify-between">
-                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${statusColor(app.status)}`}>
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-3 relative z-10">
+                  <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${statusColor(app.status)}`}>
                     {app.status}
                   </span>
                   {app.jobId.url && (
@@ -266,20 +289,20 @@ export default function Jobs() {
                       href={app.jobId.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                      className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 hover:underline transition-colors"
                     >
-                      <ExternalLink className="w-3 h-3" /> View Posting
+                      <ExternalLink className="w-3.5 h-3.5" /> View Source
                     </a>
                   )}
                 </div>
 
                 {/* Meta */}
-                <div className="flex items-center gap-3 text-xs text-neutral-500">
-                  <span className="flex items-center gap-1">
-                    <Briefcase className="w-3 h-3" />
-                    {app.jobId.location || 'Remote'}
+                <div className="flex items-center gap-4 text-xs text-zinc-500 relative z-10">
+                  <span className="flex items-center gap-1.5 bg-zinc-800/50 px-2 py-1 rounded">
+                    <MapPin className="w-3 h-3" />
+                    <span className="truncate max-w-[100px]">{app.jobId.location || 'Remote'}</span>
                   </span>
-                  <span className="flex items-center gap-1">
+                  <span className="flex items-center gap-1.5 bg-zinc-800/50 px-2 py-1 rounded">
                     <Clock className="w-3 h-3" />
                     {new Date(app.createdAt).toLocaleDateString()}
                   </span>
@@ -287,130 +310,131 @@ export default function Jobs() {
 
                 {/* Missing keywords */}
                 {app.missingKeywords?.length > 0 && (
-                  <div className="text-xs bg-amber-50 border border-amber-100 rounded-lg p-2">
-                    <span className="font-semibold text-amber-800">Missing: </span>
-                    <span className="text-amber-700">
+                  <div className="text-xs bg-orange-500/10 border border-orange-500/20 rounded-lg p-2.5 relative z-10">
+                    <span className="font-semibold text-orange-400">Skill Gap: </span>
+                    <span className="text-orange-200/70">
                       {app.missingKeywords.slice(0, 5).join(', ')}
                       {app.missingKeywords.length > 5 && ` +${app.missingKeywords.length - 5} more`}
                     </span>
                   </div>
                 )}
 
-                {/* Description preview */}
-                <p className="text-xs text-neutral-500 line-clamp-2 leading-relaxed">
-                  {app.jobId.description || 'No description available.'}
-                </p>
-
-                {/* Cover Letter */}
+                {/* Cover Letter Section with AnimatePresence */}
                 {app.coverLetter && (
-                  <div className="border-t border-neutral-100 pt-3">
+                  <div className="relative z-10">
                     <button
                       onClick={() => {
-                        if (expandedId === app._id) {
-                          setExpandedId(null);
-                          setEditingId(null);
-                        } else {
-                          setExpandedId(app._id);
-                          setEditingId(null);
-                        }
+                        setExpandedId(expandedId === app._id ? null : app._id);
+                        setEditingId(null);
                       }}
-                      className="flex items-center gap-1.5 text-xs font-semibold text-purple-700 hover:text-purple-900"
+                      className="flex items-center gap-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
                     >
-                      <FileText className="w-3.5 h-3.5" />
-                      {expandedId === app._id ? 'Hide Cover Letter' : '✨ View AI Cover Letter'}
+                      <FileText className="w-4 h-4" />
+                      {expandedId === app._id ? 'Close AI Letter' : '✨ View AI Cover Letter'}
                     </button>
 
-                    {expandedId === app._id && (
-                      <div className="mt-2">
-                        {editingId === app._id ? (
-                          <div className="space-y-2">
-                            <textarea
-                              value={editText}
-                              onChange={e => setEditText(e.target.value)}
-                              rows={8}
-                              className="w-full p-3 text-xs border border-purple-300 rounded-lg focus:ring-2 focus:ring-purple-400 outline-none resize-none"
-                            />
-                            <div className="flex gap-2">
+                    <AnimatePresence>
+                      {expandedId === app._id && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="mt-3 overflow-hidden"
+                        >
+                          {editingId === app._id ? (
+                            <div className="space-y-3">
+                              <textarea
+                                value={editText}
+                                onChange={e => setEditText(e.target.value)}
+                                rows={8}
+                                className="w-full p-3 text-xs bg-zinc-950 border border-indigo-500/30 rounded-lg text-zinc-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-none custom-scrollbar"
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleSaveLetter(app._id)}
+                                  disabled={savingLetter}
+                                  className="px-4 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-md hover:bg-indigo-500 transition disabled:opacity-50"
+                                >
+                                  {savingLetter ? 'Saving…' : 'Save Changes'}
+                                </button>
+                                <button
+                                  onClick={() => setEditingId(null)}
+                                  className="px-4 py-1.5 bg-zinc-800 text-zinc-300 text-xs font-medium rounded-md hover:bg-zinc-700 transition"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="relative group">
+                              <pre className="whitespace-pre-wrap text-[11px] leading-relaxed text-zinc-300 bg-zinc-950 border border-zinc-800 rounded-lg p-3 max-h-48 overflow-y-auto font-sans custom-scrollbar">
+                                {app.coverLetter}
+                              </pre>
                               <button
-                                onClick={() => handleSaveLetter(app._id)}
-                                disabled={savingLetter}
-                                className="px-3 py-1.5 bg-purple-600 text-white text-xs rounded-md hover:bg-purple-700 disabled:opacity-50"
+                                onClick={() => { setEditingId(app._id); setEditText(app.coverLetter); }}
+                                className="absolute top-2 right-2 flex items-center gap-1 px-2.5 py-1.5 bg-zinc-800 text-zinc-300 rounded hover:bg-zinc-700 hover:text-white shadow-lg border border-zinc-700 text-xs font-medium opacity-0 group-hover:opacity-100 transition-all"
                               >
-                                {savingLetter ? 'Saving…' : 'Save'}
-                              </button>
-                              <button
-                                onClick={() => setEditingId(null)}
-                                className="px-3 py-1.5 bg-neutral-100 text-neutral-700 text-xs rounded-md hover:bg-neutral-200"
-                              >
-                                Cancel
+                                <Edit3 className="w-3 h-3" /> Edit
                               </button>
                             </div>
-                          </div>
-                        ) : (
-                          <div className="relative group">
-                            <pre className="whitespace-pre-wrap text-xs text-neutral-700 bg-purple-50 border border-purple-100 rounded-lg p-3 max-h-48 overflow-y-auto font-sans">
-                              {app.coverLetter}
-                            </pre>
-                            <button
-                              onClick={() => { setEditingId(app._id); setEditText(app.coverLetter); }}
-                              className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 bg-white text-purple-600 rounded shadow border border-purple-200 text-xs font-semibold opacity-0 group-hover:opacity-100 transition"
-                            >
-                              <Edit3 className="w-3 h-3" /> Edit
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 )}
 
-                {/* ── Primary CTA: Open + Autofill ── */}
-                <Link
-                  to={`/ai-studio?jobId=${app.jobId._id}&applicationId=${app._id}`}
-                  className="flex items-center justify-center gap-2 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-semibold text-cyan-800 transition hover:bg-cyan-100"
-                >
-                  <BrainCircuit className="h-4 w-4" />
-                  Deep AI Analysis
-                </Link>
+                {/* ── Actions ── */}
+                <div className="mt-auto space-y-3 pt-3 border-t border-zinc-800/50 relative z-10">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Link
+                      to={`/ai-studio?jobId=${app.jobId._id}&applicationId=${app._id}`}
+                      className="flex items-center justify-center gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 py-2 text-xs font-semibold text-cyan-400 transition hover:bg-cyan-500/20 hover:text-cyan-300"
+                    >
+                      <BrainCircuit className="h-3.5 w-3.5" />
+                      Deep AI
+                    </Link>
 
-                <button
-                  onClick={() => handleApply(app)}
-                  disabled={busy || !hasResume}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 bg-neutral-900 text-white rounded-lg font-semibold text-sm hover:bg-neutral-700 disabled:opacity-50 transition mt-auto"
-                >
-                  {busy
-                    ? <RefreshCw className="w-4 h-4 animate-spin" />
-                    : <><ChevronRight className="w-4 h-4" /> Open + Autofill</>
-                  }
-                </button>
+                    <button
+                      onClick={() => handleApply(app)}
+                      disabled={busy || !hasResume}
+                      className="flex items-center justify-center gap-1.5 py-2 bg-zinc-100 text-zinc-900 rounded-lg font-bold text-xs hover:bg-white disabled:opacity-50 transition"
+                    >
+                      {busy
+                        ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        : <><ChevronRight className="w-4 h-4" /> Autofill</>
+                      }
+                    </button>
+                  </div>
 
-                {/* Application ID hint for extension */}
-                <p className="text-center text-xs text-neutral-400 -mt-1 select-all" title="Copy this into the Chrome extension">
-                  App ID: <span className="font-mono">{app._id}</span>
-                </p>
+                  {/* ID Copy hint */}
+                  <p className="text-center text-[10px] text-zinc-500 uppercase tracking-wider font-semibold select-all" title="Copy this into the Chrome extension">
+                    System ID: <span className="font-mono text-zinc-400">{app._id}</span>
+                  </p>
 
-                {/* Secondary: Mark Applied / Failed */}
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => handleComplete(app._id, 'applied')}
-                    disabled={busy || app.status === 'Applied'}
-                    className="flex items-center justify-center gap-1.5 py-2 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-50 text-xs font-medium disabled:opacity-40"
-                  >
-                    <CircleCheckBig className="w-3.5 h-3.5" /> Mark Applied
-                  </button>
-                  <button
-                    onClick={() => handleComplete(app._id, 'failed')}
-                    disabled={busy || app.status === 'Failed'}
-                    className="flex items-center justify-center gap-1.5 py-2 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-medium disabled:opacity-40"
-                  >
-                    <CircleX className="w-3.5 h-3.5" /> Mark Failed
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => handleComplete(app._id, 'applied')}
+                      disabled={busy || app.status === 'Applied'}
+                      className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10 text-[11px] font-medium disabled:opacity-30 transition-colors"
+                    >
+                      <CircleCheckBig className="w-3.5 h-3.5" /> Set Applied
+                    </button>
+                    <button
+                      onClick={() => handleComplete(app._id, 'failed')}
+                      disabled={busy || app.status === 'Failed'}
+                      className="flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-rose-500/30 text-rose-500 hover:bg-rose-500/10 text-[11px] font-medium disabled:opacity-30 transition-colors"
+                    >
+                      <CircleX className="w-3.5 h-3.5" /> Set Failed
+                    </button>
+                  </div>
                 </div>
-              </div>
+
+              </motion.div>
             );
           })
         )}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
